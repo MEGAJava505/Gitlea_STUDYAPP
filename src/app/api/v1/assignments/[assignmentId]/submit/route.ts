@@ -1,0 +1,39 @@
+import { AssignmentId, errors, toErrorBody } from '../../../../../../shared/contracts';
+import { createAuthContext, getServices } from '../../../../../../server/auth-context';
+
+interface SubmitBody {
+  commitSha?: string;
+  idempotencyKey?: string;
+}
+
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ assignmentId: string }> },
+): Promise<Response> {
+  try {
+    const { assignmentId } = await ctx.params;
+    const { sessions, identities, assignments } = getServices();
+    const principal = await createAuthContext({ sessions, identities }).principal(req);
+    if (!principal) throw errors.unauthenticated();
+
+    const body = (await req.json().catch(() => null)) as SubmitBody | null;
+    if (!body?.commitSha || !body.idempotencyKey) {
+      throw errors.invalidInput('commitSha and idempotencyKey are required');
+    }
+
+    const result = await assignments.submit({
+      actor: principal,
+      assignmentId: assignmentId as AssignmentId,
+      commitSha: body.commitSha,
+      idempotencyKey: body.idempotencyKey,
+    });
+
+    return Response.json(
+      { submission: result.submission, alreadyExisted: result.alreadyExisted },
+      { status: result.alreadyExisted ? 200 : 201 },
+    );
+  } catch (err) {
+    const { status, body } = toErrorBody(err);
+    return Response.json(body, { status });
+  }
+}
