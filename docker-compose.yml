@@ -1,0 +1,136 @@
+services:
+  # ---------------------------------------------------------------------------
+  # app - Next.js application (App Router). Reached only through the reverse
+  # proxy, which exposes the public entrypoint and /health.
+  #
+  # Dependency graph is intentionally minimal so that the validation subset
+  # (gitea + proxy) can run WITHOUT the app:
+  #     app -> gitea (healthy)
+  #     gitea -> (none)
+  #     proxy -> (none)
+  # `docker compose --profile validation up -d gitea proxy` therefore starts
+  # exactly gitea and proxy; app is excluded simply by not being named or
+  # depended upon. No service is gated behind a profile, so the default
+  # `docker compose up -d` starts all three (app, gitea, proxy).
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    image: local-github/app:0.1.0
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+      TZ: ${TZ:-UTC}
+      # Consumed by Task B (data layer). The file lives in the app named volume.
+      DATABASE_URL: ${DATABASE_URL:-file:/data/studyapp/studyapp.db}
+      # Consumed by Task C (sessions). Must be >=32 random chars in real use.
+      SESSION_SECRET: ${SESSION_SECRET:-insecure-dev-session-secret-change-me-32b}
+      # Gitea integration (consumed by Task C). Server-side only; this token is
+      # never exposed to the browser or written to evidence/audit payloads.
+      GITEA_BASE_URL: ${GITEA_BASE_URL:-http://gitea:3000}
+      GITEA_ADMIN_TOKEN: ${GITEA_ADMIN_TOKEN:-}
+    volumes:
+      - app-data:/data/studyapp
+    depends_on:
+      gitea:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [studyapp]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # gitea - Pinned, hardened, disposable Gitea (see docker/gitea/app.ini).
+  # First-run bootstrap creates the admin user and self-initializes the SQLite
+  # database, so the stack starts from the committed Compose config with no
+  # manual database edits. The bootstrap runs as the git user (su-exec) so all
+  # created files are git-owned, matching the s6 service that runs `gitea web`.
+  # Data persists in the named volume `gitea-data`; the SQLite path is set in
+  # app.ini ([database] PATH) inside that volume.
+  #
+  # The validation harness generates its own throwaway admin API token at run
+  # time (via `docker compose exec gitea gitea admin user generate-access-token
+  # ... --raw`) so no secret needs to be baked into the image or committed.
+  # ---------------------------------------------------------------------------
+  gitea:
+    image: gitea/gitea:1.27.3
+    environment:
+      USER: git
+      GITEA_CUSTOM: /data/gitea
+      GITEA_ADMIN_USER: ${GITEA_ADMIN_USER:-admin}
+      GITEA_ADMIN_EMAIL: ${GITEA_ADMIN_EMAIL:-admin@local-github.local}
+      GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD:-local-github-dev-admin-password}
+      TZ: ${TZ:-UTC}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        # Headless first-run bootstrap. `admin user create` self-initializes and
+        # migrates the SQLite database. Run as git so /data/gitea/gitea.db is
+        # git-owned before `gitea web` (also run as git by the s6 service) opens it.
+        su-exec git sh -c 'gitea admin user create \
+          --username "$GITEA_ADMIN_USER" \
+          --email "$GITEA_ADMIN_EMAIL" \
+          --password "$GITEA_ADMIN_PASSWORD" \
+          --admin \
+          --must-change-password=false'
+        exec /usr/bin/s6-svscan /etc/s6
+    volumes:
+      - gitea-data:/data
+      - ./docker/gitea/app.ini:/data/gitea/conf/app.ini:ro
+    ports:
+      - "${GITEA_HTTP_PORT:-3000}:3000"
+      - "${GITEA_SSH_PORT:-2222}:22"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/api/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [studyapp]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # proxy - Caddy reverse proxy. Forwards the public HTTP entrypoint to the app
+  # and exposes /health. Local dev uses plaintext HTTP; production certificate
+  # handling (PROXY_HTTPS_PORT) is explicit in the environment contract. It does
+  # not depend on app, so the validation subset can run without the app (Caddy
+  # tolerates a missing upstream and returns 502 for proxied paths until app is
+  # up; gitea is reached directly by the harness regardless).
+  # ---------------------------------------------------------------------------
+  proxy:
+    image: caddy:2.8.4-alpine
+    environment:
+      TZ: ${TZ:-UTC}
+    command: caddy run --config /etc/caddy/Caddyfile
+    volumes:
+      - ./docker/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "${PROXY_HTTP_PORT:-8080}:80"
+      - "${PROXY_HTTPS_PORT:-8443}:443"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [studyapp]
+    restart: unless-stopped
+
+volumes:
+  gitea-data:
+  app-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  studyapp:
+    driver: bridge

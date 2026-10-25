@@ -1,0 +1,28 @@
+# Local GitHub MVP - Caddy reverse proxy.
+#
+# Forwards the public HTTP entrypoint to the Next.js app and exposes the
+# /health route. Local development uses plaintext HTTP; production TLS is
+# handled explicitly by the environment contract (PROXY_HTTPS_PORT) and is not
+# terminated here for local runs.
+
+{
+	# Local development mode. In production, replace with an explicit
+	# certificate directive or let the operator manage TLS in front.
+	auto_https off
+}
+
+:80 {
+	encode gzip
+
+	# Public health route. The Next.js route lives at /api/health, so remap the
+	# short public path to it and return the documented JSON.
+	handle /health {
+		uri strip_prefix /health /api/health
+		reverse_proxy app:3000
+	}
+
+	# Everything else goes to the application.
+	handle {
+		reverse_proxy app:3000
+	}
+}
