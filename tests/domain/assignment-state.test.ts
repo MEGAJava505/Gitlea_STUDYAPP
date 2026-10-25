@@ -60,7 +60,7 @@ describe('submit', () => {
         commitSha: 'missing-sha',
         idempotencyKey: KEY,
       }),
-    ).rejects.toThrow({ code: 'INTEGRATION_ERROR' });
+    ).rejects.toMatchObject({ code: 'INTEGRATION_ERROR' });
 
     expect(w.gitea.snapshots).toHaveLength(0);
     expect(w.auditRepo.events.some((e) => e.eventType === 'integration.error')).toBe(true);
@@ -134,7 +134,7 @@ describe('submit', () => {
         commitSha: 'late-sha',
         idempotencyKey: 'key-late',
       }),
-    ).rejects.toThrow({ code: 'DEADLINE_EXPIRED' });
+    ).rejects.toMatchObject({ code: 'DEADLINE_EXPIRED' });
   });
 
   it('rejects a first submit from the terminal state (already failed)', async () => {
@@ -158,7 +158,7 @@ describe('submit', () => {
         commitSha: 'second-sha',
         idempotencyKey: 'key-2',
       }),
-    ).rejects.toThrow({ code: 'INVALID_STATE' });
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
   });
 });
 
@@ -221,7 +221,7 @@ describe('resubmission', () => {
         commitSha: 'v2-sha',
         idempotencyKey: 'key-2',
       }),
-    ).rejects.toThrow({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });
 
@@ -267,7 +267,7 @@ describe('review transitions', () => {
         submissionId: sub.submission.id,
         feedback: 'too late',
       }),
-    ).rejects.toThrow({ code: 'DEADLINE_EXPIRED' });
+    ).rejects.toMatchObject({ code: 'DEADLINE_EXPIRED' });
   });
 
   it('a timely submitted work after the deadline can still become passed', async () => {
@@ -344,7 +344,7 @@ describe('review transitions', () => {
         decision: 'pass',
         feedback: 'x',
       }),
-    ).rejects.toThrow({ code: 'INVALID_STATE' });
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
 
     const failed = await w.machine.fail({
       actor: teacher,
@@ -364,7 +364,7 @@ describe('review transitions', () => {
         decision: 'pass',
         feedback: 'x',
       }),
-    ).rejects.toThrow({ code: 'INVALID_STATE' });
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
     await expect(
       w.machine.requestRevision({
         actor: teacher,
@@ -372,7 +372,7 @@ describe('review transitions', () => {
         submissionId: sub.submission.id,
         feedback: 'x',
       }),
-    ).rejects.toThrow({ code: 'INVALID_STATE' });
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
   });
 
   it('denies self-review end-to-end: Admin+Owner student cannot pass their own submission', async () => {
@@ -416,6 +416,6 @@ describe('review transitions', () => {
         decision: 'pass',
         feedback: 'not mine',
       }),
-    ).rejects.toThrow({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });

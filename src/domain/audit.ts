@@ -42,7 +42,7 @@ export class AuditLogWriterImpl implements AuditLogWriter {
       eventType: input.eventType,
       targetType: input.targetType,
       targetId: input.targetId,
-      payload: redact(input.payload),
+      payload: redact(input.payload) as Record<string, unknown>,
       createdAt: this.now(),
     };
     return this.audit.append(event);

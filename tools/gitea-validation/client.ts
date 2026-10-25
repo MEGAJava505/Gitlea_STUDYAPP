@@ -409,7 +409,7 @@ class GiteaOAuthFlow implements OAuthFlow {
   private storeCookies(username: string, headers: Headers): void {
     const setCookies = headers.getSetCookie?.() ?? [];
     for (const raw of setCookies) {
-      const [pair] = raw.split(';');
+      const pair = raw.split(';')[0] ?? '';
       const eq = pair.indexOf('=');
       if (eq > 0) {
         this.cookies.set(username + ':' + pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());

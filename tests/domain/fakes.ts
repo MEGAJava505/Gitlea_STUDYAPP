@@ -214,7 +214,12 @@ export class InMemoryAssignmentRepository implements AssignmentRepository, Acces
 
   async updateSubmissionStatus(id: SubmissionId, status: AssignmentStatus): Promise<void> {
     const existing = this.submissions.get(id);
-    if (existing) this.submissions.set(id, { ...existing, status });
+    if (!existing) return;
+    const updated = { ...existing, status };
+    this.submissions.set(id, updated);
+    const list = this.submissionsByLink.get(existing.repositoryLinkId) ?? [];
+    const idx = list.findIndex((s) => s.id === id);
+    if (idx >= 0) list[idx] = updated;
   }
 
   async insertReview(input: NewReview): Promise<ReviewRecord> {

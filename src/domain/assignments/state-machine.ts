@@ -16,8 +16,8 @@ import {
   SubmitInput,
   SubmitResult,
   errors,
-} from '../../../shared/contracts';
-import { GiteaSubmissionPort } from '../../../server/ports/gitea-submissions';
+} from '../../shared/contracts';
+import { GiteaSubmissionPort } from '../../server/ports/gitea-submissions';
 
 /**
  * Exact state machine from TASK_C:

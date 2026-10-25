@@ -51,7 +51,7 @@ describe('IdentityService', () => {
 
     await expect(
       identity.grantRole({ actorId: uid('admin'), targetUserId: uid('target'), role: 'owner' }),
-    ).rejects.toThrow({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
     expect(await identity.listRoles(uid('target'))).toEqual(['student']);
     expect(auditRepo.events.some((e) => e.eventType === 'role.denied')).toBe(true);
@@ -67,7 +67,7 @@ describe('IdentityService', () => {
 
     await expect(
       identity.revokeRole({ actorId: uid('admin'), targetUserId: uid('owner'), role: 'owner' }),
-    ).rejects.toThrow({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
     expect(await identity.listRoles(uid('owner'))).toEqual(['owner']);
     expect(await roles.listAllRoles()).toHaveLength(2);
@@ -84,7 +84,7 @@ describe('IdentityService', () => {
         targetUserId: uid('only-owner'),
         role: 'owner',
       }),
-    ).rejects.toThrow({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
     expect(await identity.listRoles(uid('only-owner'))).toEqual(['owner']);
     expect(await roles.listAllRoles()).toHaveLength(1);

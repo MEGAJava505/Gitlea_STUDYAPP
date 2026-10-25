@@ -27,7 +27,7 @@ let teacherToken = '';
 const rawTokens: string[] = [];
 
 const jsonReq = (url: string, body: unknown, headers: Record<string, string> = {}) =>
-  new Request(url, {
+  new Request(new URL(url, 'http://localhost').toString(), {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
@@ -117,7 +117,7 @@ describe('API routes', () => {
   });
 
   it('GET /session: 401 without a token', async () => {
-    const res = await GET_SESSION(new Request('/api/v1/session'));
+    const res = await GET_SESSION(new Request(new URL('/api/v1/session', 'http://localhost').toString()));
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({
       error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
@@ -129,16 +129,16 @@ describe('API routes', () => {
     const revokedToken = tokenFromSetCookie(fresh);
 
     const del = await DELETE_SESSION(
-      new Request('/api/v1/session', { method: 'DELETE', headers: cookieHeader('session', revokedToken) }),
+      new Request(new URL('/api/v1/session', 'http://localhost').toString(), { method: 'DELETE', headers: cookieHeader('session', revokedToken) }),
     );
     expect(del.status).toBe(200);
 
-    const res = await GET_SESSION(new Request('/api/v1/session', { headers: cookieHeader('session', revokedToken) }));
+    const res = await GET_SESSION(new Request(new URL('/api/v1/session', 'http://localhost').toString(), { headers: cookieHeader('session', revokedToken) }));
     expect(res.status).toBe(401);
   });
 
   it('GET /session: authenticated success returns the principal', async () => {
-    const res = await GET_SESSION(new Request('/api/v1/session', { headers: cookieHeader('session', studentToken) }));
+    const res = await GET_SESSION(new Request(new URL('/api/v1/session', 'http://localhost').toString(), { headers: cookieHeader('session', studentToken) }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { principal: { userId: string; roles: string[] } };
     expect(body.principal.userId).toBe('u-student');

@@ -50,7 +50,7 @@ describe('PermissionChecker', () => {
 
     await expect(
       checker.assert(other, 'assignment:submit', { type: 'assignment', id: aid('a1') }),
-    ).rejects.toThrow({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('requires assignment membership for a teacher to review', async () => {
@@ -64,7 +64,7 @@ describe('PermissionChecker', () => {
 
     await expect(
       checker.assert(stranger, 'assignment:review', { type: 'submission', id: submissionId }),
-    ).rejects.toThrow({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('checks the role on every permission', async () => {
@@ -103,7 +103,7 @@ describe('PermissionChecker', () => {
 
     await expect(
       checker.assert(stranger, 'assignment:review', { type: 'submission', id: submissionId }),
-    ).rejects.toThrow({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
     const denied = auditRepo.events.find((e) => e.eventType === 'permission.denied')!;
     expect(denied).toBeDefined();
