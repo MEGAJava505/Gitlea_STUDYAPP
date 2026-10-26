@@ -11,6 +11,10 @@ import { PermissionCheckerImpl } from '../domain/permissions';
 import { DbAssignmentRepository } from './db-assignment-repository';
 import { DbDeadlineSweeperRepository } from './db-deadline-sweeper-repository';
 import { DeadlineSweeper } from '../domain/assignments/deadline-sweeper';
+import { StudentAssignmentsQuery } from './student-assignments';
+import { DbProvisioningRepository } from './db-provisioning-repository';
+import { GiteaProvisioningAdapter } from './ports/gitea-provisioning';
+import { ProvisioningService } from '../domain/git/provisioning';
 import { GiteaSubmissionAdapter } from './ports/gitea-submission-adapter';
 import { openSqliteDatabase } from '../db/migrate';
 import * as tables from '../db/schema';
@@ -87,6 +91,16 @@ export function createProductionServices(): AppServices {
     identities: new IdentityServiceImpl({ roles, audit }),
     courses: new CourseService({ db, now: Date.now }),
     assignments,
+    provisioning: new ProvisioningService({
+      repo: new DbProvisioningRepository(db),
+      gitea: new GiteaProvisioningAdapter(),
+      audit,
+      now: Date.now,
+      organization: process.env.GITEA_ORGANIZATION ?? 'local-github',
+      cloneBaseUrl: process.env.GITEA_CLONE_BASE_URL ?? process.env.GITEA_BASE_URL ?? '',
+      sshCloneBaseUrl: process.env.GITEA_SSH_CLONE_BASE_URL ?? '',
+    }),
+    studentAssignments: new StudentAssignmentsQuery(db),
     deadlineSweeper: new DeadlineSweeper({ repo: new DbDeadlineSweeperRepository(db), audit, now: Date.now }),
     permissions,
     audit,

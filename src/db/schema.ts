@@ -153,6 +153,8 @@ export const courseAssignments = sqliteTable('course_assignments', {
   title: text('title').notNull(),
   description: text('description').notNull().default(''),
   allowResubmission: integer('allow_resubmission', { mode: 'boolean' }).notNull().default(false),
+  templateOwner: text('template_owner'),
+  templateRepo: text('template_repo'),
   ...timestamps(),
 }, (table) => [
   index('course_assignments_course_idx').on(table.courseId),

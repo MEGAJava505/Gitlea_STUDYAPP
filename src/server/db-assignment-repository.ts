@@ -149,7 +149,7 @@ export class DbAssignmentRepository implements AssignmentRepository {
   }
 }
 
-function toLinkRecord(row: typeof repositoryLinks.$inferSelect): RepositoryLinkRecord {
+export function toLinkRecord(row: typeof repositoryLinks.$inferSelect): RepositoryLinkRecord {
   return {
     id: row.id as RepositoryLinkId,
     groupAssignmentId: row.groupAssignmentId as AssignmentId,

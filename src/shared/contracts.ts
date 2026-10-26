@@ -207,6 +207,7 @@ export type AuditEventType =
   | 'group.member_added'
   | 'group.member_removed'
   | 'group.course_assigned'
+  | 'repository.provisioned'
   | 'submission.created'
   | 'submission.idempotent'
   | 'submission.auto_failed'

@@ -8,8 +8,7 @@ interface ProvisioningApiService {
 }
 
 function provisioningService(): ProvisioningApiService {
-  const services = getServices() as ReturnType<typeof getServices> & { provisioning?: ProvisioningApiService };
-  const service = services.provisioning;
+  const service = getServices().provisioning;
   if (!service) throw new DomainError('UNAVAILABLE', 'Repository provisioning service is not configured', 503);
   return service;
 }
