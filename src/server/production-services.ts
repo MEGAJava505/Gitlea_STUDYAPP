@@ -3,9 +3,12 @@ import { resolve } from 'node:path';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { AuditLogWriterImpl } from '../domain/audit';
+import { CourseService } from '../domain/courses/service';
 import { SessionStoreImpl } from '../domain/auth/session';
 import { IdentityServiceImpl } from '../domain/identity';
 import { openSqliteDatabase } from '../db/migrate';
+import * as tables from '../db/schema';
+import * as relations from '../db/relations';
 import type {
   AuditEvent, AuditRepository, Role, RoleRepository, SessionRecord, SessionRepository,
   UserId, UserRecord,
@@ -16,6 +19,9 @@ export function createProductionServices(): AppServices {
   const sqlite = openSqliteDatabase();
   const migrationsFolder = process.env.MIGRATIONS_FOLDER ?? resolve(process.cwd(), 'drizzle');
   migrate(drizzle(sqlite), { migrationsFolder });
+  // One database handle for the whole service container. Importing `db` from
+  // `../db/client` would open a second connection to the same file.
+  const db = drizzle(sqlite, { schema: { ...tables, ...relations } });
 
   const roles: RoleRepository = {
     async getUserById(id: UserId) {
@@ -63,6 +69,7 @@ export function createProductionServices(): AppServices {
   return {
     sessions: new SessionStoreImpl({ sessions: sessionRepository, now: Date.now }),
     identities: new IdentityServiceImpl({ roles, audit }),
+    courses: new CourseService({ db, now: Date.now }),
     audit,
   };
 }

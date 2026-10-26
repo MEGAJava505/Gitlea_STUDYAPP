@@ -8,6 +8,7 @@ import {
 } from '../shared/contracts';
 import { SESSION_COOKIE_NAME } from '../domain/auth/session';
 import { createProductionServices } from './production-services';
+import type { CourseService } from '../domain/courses/service';
 
 /** Reads the opaque session token from the request's Cookie header. */
 export function readSessionCookie(req: Request): string | null {
@@ -64,6 +65,7 @@ export interface AppServices {
   sessions: SessionStore;
   identities: IdentityService;
   assignments?: AssignmentStateMachine;
+  courses?: CourseService;
   permissions?: PermissionChecker;
   audit: AuditLogWriter;
 }
