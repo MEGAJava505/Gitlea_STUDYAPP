@@ -99,7 +99,6 @@ export class AssignmentService {
     if (!publication) throw errors.notFound('assignment publication');
     const assignment = await this.deps.repo.getCourseAssignment(publication.assignmentId);
     if (!assignment) throw errors.notFound('assignment');
-    if (this.deps.now() <= publication.deadline) return;
-    if (!assignment.allowResubmission) throw errors.deadlineExpired();
+    if (this.deps.now() > publication.deadline) throw errors.deadlineExpired();
   }
 }
