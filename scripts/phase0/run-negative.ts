@@ -51,7 +51,9 @@ async function run(): Promise<void> {
       await git(['push', 'origin', 'phase0-control']);
       assertions.push({ name: 'student can push unprotected control branch', passed: true });
       await git(['switch', '--orphan', 'phase0-rewrite']);
-      await git(['rm', '-rf', '.']);
+      // An orphan branch starts with an empty index; keep the removal for
+      // non-empty trees but do not fail when there is nothing to remove.
+      await git(['rm', '-rf', '.']).catch(() => undefined);
       await writeFile(join(directory, 'tamper.txt'), 'valid unrelated commit for force-push check\n');
       await git(['add', 'tamper.txt']);
       await git(['commit', '-m', 'Phase 0 rewrite attempt']);

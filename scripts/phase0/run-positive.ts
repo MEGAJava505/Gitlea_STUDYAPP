@@ -62,7 +62,8 @@ async function loginIdentity(
       const value = /\bvalue=["']([^"']*)["']/i.exec(input[0])?.[1];
       if (name && value !== undefined) form.set(name, value.replace(/&amp;/g, '&').replace(/&#34;|&quot;/g, '"'));
     }
-    if (!form.has('_csrf')) throw new Error('OAuth page missing CSRF form');
+    // Gitea 1.27+ stopped rendering a _csrf hidden input on the login/consent pages
+    // (session-bound CSRF); keep sending it when present, but do not require it.
     if (/name=["']password["']/.test(selected)) {
       form.set('user_name', fixtures.student);
       form.set('password', password);

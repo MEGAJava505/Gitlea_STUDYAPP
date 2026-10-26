@@ -13,7 +13,14 @@
  *    throws if a configured secret value appears in the evidence text.
  */
 
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+
 const API = '/api/v1';
+const execFileAsync = promisify(execFile);
 
 export interface OAuthFlow {
   /** URL of the Gitea sign-in page for the OAuth application (first hop). */
@@ -153,11 +160,15 @@ export class GiteaValidationClientImpl implements GiteaValidationClient {
   /** Fetch the full ref value (sha) for a git ref like "refs/heads/main". */
   async getRefSha(repo: string, ref: string): Promise<string> {
     const { owner, repo: name } = GiteaValidationClientImpl.parseRepo(repo);
-    const data = await this.api<{ object: { sha: string } }>(
+    const data = await this.api<{ object: { sha: string } } | Array<{ object: { sha: string } }>>(
       'GET',
       `/repos/${owner}/${name}/git/refs/${encodeURIComponent(ref)}`,
     );
-    return data.object.sha;
+    // Gitea 1.28 answers a single ref with a one-element array; older versions
+    // returned the object directly.
+    const entry = Array.isArray(data) ? data[0] : data;
+    if (!entry?.object?.sha) throw new Error(`git ref ${ref} not found in ${repo}`);
+    return entry.object.sha;
   }
 
   /** Create an organization (admin, idempotent - tolerates 905/409). */
@@ -325,10 +336,39 @@ export class GiteaValidationClientImpl implements GiteaValidationClient {
 
   async createSubmissionRef(input: { repo: string; sourceSha: string; ref: string }): Promise<void> {
     const { owner, repo: name } = GiteaValidationClientImpl.parseRepo(input.repo);
-    await this.api('POST', `/repos/${owner}/${name}/git/refs`, {
-      ref: input.ref.startsWith('refs/') ? input.ref : `refs/${input.ref}`,
-      sha: input.sourceSha,
-    });
+    // Gitea's REST API only exposes GET on /git/refs, so the snapshot ref is
+    // created by pushing it with the admin credentials (same effect, no API).
+    const target = input.ref.startsWith('refs/') ? input.ref : `refs/heads/${input.ref}`;
+    const login = await this.adminLogin();
+    const basic = Buffer.from(`${login}:${this.adminToken}`).toString('base64');
+    const directory = await mkdtemp(join(tmpdir(), 'phase0-ref-'));
+    const env = {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'http.extraHeader',
+      GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
+    };
+    const git = (args: string[]) => execFileAsync('git', args, { cwd: directory, env, timeout: 60_000 });
+    try {
+      await git(['init', '--quiet']);
+      await git(['remote', 'add', 'origin', `${this.baseUrl}/${owner}/${name}.git`]);
+      await git(['fetch', '--quiet', 'origin', 'main']);
+      await git(['push', '--quiet', 'origin', `${input.sourceSha}:${target}`]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+
+  private adminLoginCache?: string;
+
+  /** Login name of the admin account that owns `adminToken`, resolved once. */
+  private async adminLogin(): Promise<string> {
+    if (!this.adminLoginCache) {
+      const user = await this.api<{ login: string }>('GET', '/user');
+      this.adminLoginCache = user.login;
+    }
+    return this.adminLoginCache;
   }
 
   async createPullRequest(input: { repo: string; head: string; base: string }): Promise<{ number: number }> {
