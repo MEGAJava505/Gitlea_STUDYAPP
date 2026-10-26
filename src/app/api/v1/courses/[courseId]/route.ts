@@ -1,5 +1,5 @@
-import { errors, toErrorBody, type CourseId } from '../../../../../shared/contracts';
-import { requireCourseContext } from '../../../../../server/course-api';
+import { errors, type CourseId } from '../../../../../shared/contracts';
+import { courseApiError, requireCourseContext } from '../../../../../server/course-api';
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ courseId: string }> }): Promise<Response> {
   try {
@@ -8,7 +8,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ courseId: str
     if (!body || (!body.title && !body.slug && body.description === undefined)) throw errors.invalidInput('At least one course field is required');
     return Response.json({ course: await courses.updateCourse(actor, courseId as CourseId, body) });
   } catch (error) {
-    const { status, body } = toErrorBody(error);
-    return Response.json(body, { status });
+    return courseApiError(error);
   }
 }

@@ -62,7 +62,8 @@ export class CourseService {
     const course = await this.requireCourse(courseId);
     this.requireCanManage(course, actor);
     if (course.publishedAt !== null) return course;
-    return this.deps.db.update(courses).set({ publishedAt: this.deps.now(), updatedAt: this.deps.now() })
+    const now = this.deps.now();
+    return this.deps.db.update(courses).set({ publishedAt: now, updatedAt: now })
       .where(eq(courses.id, courseId)).returning().get();
   }
 
@@ -200,10 +201,10 @@ export class CourseService {
     if (this.isAdmin(input.actor) || input.actor.userId === course.ownerId || !input.actor.roles.includes('teacher')) {
       throw errors.forbidden('An extra assignment is only available to a teacher using another author’s course');
     }
-    if (course.publishedAt === null) throw errors.invalidState('The course must be published before it can be used');
-    if (!(await this.teachesGroup(input.actor, input.groupId))) throw errors.forbidden('You may only create assignments for your own group');
     const group = await this.deps.db.select().from(groups).where(eq(groups.id, input.groupId)).get();
     if (!group) throw errors.notFound('group');
+    if (course.publishedAt === null) throw errors.invalidState('The course must be published before it can be used');
+    if (!(await this.teachesGroup(input.actor, input.groupId))) throw errors.forbidden('You may only create assignments for your own group');
     const assigned = await this.deps.db.select().from(courseGroups)
       .where(and(eq(courseGroups.courseId, input.courseId), eq(courseGroups.groupId, input.groupId))).get();
     if (!assigned) throw errors.invalidState('The course must be assigned to this group first');

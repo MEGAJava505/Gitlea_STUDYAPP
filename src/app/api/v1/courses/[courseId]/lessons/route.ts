@@ -1,13 +1,12 @@
-import { errors, toErrorBody, type CourseId } from '../../../../../../shared/contracts';
-import { requireCourseContext } from '../../../../../../server/course-api';
+import { errors, type CourseId } from '../../../../../../shared/contracts';
+import { courseApiError, requireCourseContext } from '../../../../../../server/course-api';
 
 export async function GET(req: Request, ctx: { params: Promise<{ courseId: string }> }): Promise<Response> {
   try {
     const [{ courseId }, { courses, actor }] = await Promise.all([ctx.params, requireCourseContext(req)]);
     return Response.json({ lessons: await courses.listPublishedLessonsForStudent(actor, courseId as CourseId) });
   } catch (error) {
-    const { status, body } = toErrorBody(error);
-    return Response.json(body, { status });
+    return courseApiError(error);
   }
 }
 
@@ -19,7 +18,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ courseId: stri
     const lesson = await courses.createLesson({ actor, courseId: courseId as CourseId, title: body.title, contentMetadata: body.contentMetadata });
     return Response.json({ lesson }, { status: 201 });
   } catch (error) {
-    const { status, body } = toErrorBody(error);
-    return Response.json(body, { status });
+    return courseApiError(error);
   }
 }

@@ -1,4 +1,4 @@
-import { errors, toErrorBody } from '../../../../shared/contracts';
+import { errors } from '../../../../shared/contracts';
 import { courseApiError, requireCourseContext } from '../../../../server/course-api';
 
 export async function GET(req: Request): Promise<Response> {
