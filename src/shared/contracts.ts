@@ -209,6 +209,7 @@ export type AuditEventType =
   | 'group.course_assigned'
   | 'submission.created'
   | 'submission.idempotent'
+  | 'submission.auto_failed'
   | 'review.decision'
   | 'review.denied'
   | 'permission.denied'
