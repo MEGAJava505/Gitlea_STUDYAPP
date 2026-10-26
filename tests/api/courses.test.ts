@@ -1,11 +1,14 @@
 import Database from 'better-sqlite3';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as schema from '../../src/db/schema';
 import * as relations from '../../src/db/relations';
+import { AssignmentService, type AssignmentsRepository } from '../../src/domain/assignments/service';
 import { CourseService } from '../../src/domain/courses/service';
 import { IdentityServiceImpl } from '../../src/domain/identity';
+import type { CourseId } from '../../src/shared/contracts';
 import { configureServices } from '../../src/server/auth-context';
 import { GET as LIST_COURSES, POST as CREATE_COURSE } from '../../src/app/api/v1/courses/route';
 import { PATCH as PATCH_COURSE } from '../../src/app/api/v1/courses/[courseId]/route';
@@ -16,6 +19,7 @@ import { POST as REORDER_LESSONS } from '../../src/app/api/v1/courses/[courseId]
 import { PATCH as PATCH_LESSON } from '../../src/app/api/v1/lessons/[lessonId]/route';
 import { POST as PUBLISH_LESSON } from '../../src/app/api/v1/lessons/[lessonId]/publish/route';
 import { POST as CREATE_EXTRA } from '../../src/app/api/v1/courses/[courseId]/assignments/route';
+import { POST as PUBLISH_ASSIGNMENT } from '../../src/app/api/v1/assignments/[assignmentId]/publish/route';
 import {
   InMemoryAuditRepository,
   InMemoryRoleRepository,
@@ -100,7 +104,43 @@ beforeAll(async () => {
   }
   const audit = makeAuditWriter(new InMemoryAuditRepository(), now);
   const identities = new IdentityServiceImpl({ roles, audit });
-  configureServices({ sessions, identities, courses: new CourseService({ db, now }), audit });
+  const assignmentRepo: AssignmentsRepository = {
+    async getCourse(courseId) {
+      const course = db.select().from(schema.courses).where(eq(schema.courses.id, courseId)).get();
+      return course ? { id: courseId, ownerId: uid(course.ownerId), published: course.publishedAt !== null } : null;
+    },
+    async insertCourseAssignment(input) {
+      const row = db.insert(schema.courseAssignments).values({ ...input, createdAt: now(), updatedAt: now() }).returning().get();
+      return { ...input, id: row.id, createdAt: row.createdAt };
+    },
+    async getCourseAssignment(assignmentId) {
+      const row = db.select().from(schema.courseAssignments).where(eq(schema.courseAssignments.id, assignmentId)).get();
+      return row ? { ...row, courseId: row.courseId as CourseId, authorId: uid(row.authorId) } : null;
+    },
+    async publishAssignment(input) {
+      const row = db.insert(schema.groupAssignments).values({
+        courseAssignmentId: input.assignmentId, groupId: input.groupId, deadline: input.deadline,
+        publishedAt: now(), createdAt: now(), updatedAt: now(),
+      }).returning().get();
+      return { ...input, id: row.id, publishedAt: now() };
+    },
+    async canTeachGroup(teacherId, groupId) {
+      return Boolean(db.select().from(schema.groupMembers).where(and(
+        eq(schema.groupMembers.userId, teacherId), eq(schema.groupMembers.groupId, groupId), eq(schema.groupMembers.state, 'active'),
+      )).get());
+    },
+    async isCourseAssignedToGroup(courseId, groupId) {
+      return Boolean(db.select().from(schema.courseGroups).where(and(
+        eq(schema.courseGroups.courseId, courseId), eq(schema.courseGroups.groupId, groupId),
+      )).get());
+    },
+    getPublishedAssignment: vi.fn(),
+    listForStudent: vi.fn(),
+    listForCourse: vi.fn(),
+    countSubmissions: vi.fn(),
+  };
+  const assignmentService = new AssignmentService({ repo: assignmentRepo, now });
+  configureServices({ sessions, identities, courses: new CourseService({ db, now }), audit, assignmentService } as Parameters<typeof configureServices>[0]);
 });
 afterAll(() => sqlite.close());
 
@@ -226,21 +266,40 @@ describe('extra assignment API', () => {
       expect((await ASSIGN_COURSE(request(`/api/v1/courses/${course.id}/assign`, { body: { groupId }, token: tokens.teacher }), params('courseId', course.id))).status).toBe(201);
     }
 
-    const extra = (body: Record<string, unknown>, token: string) =>
-      CREATE_EXTRA(request(`/api/v1/courses/${course.id}/assignments`, { body, token }), params('courseId', course.id));
+    const originalCourse = sqlite.prepare('SELECT * FROM courses WHERE id = ?').get(course.id);
+    const extra = (title: string, token: string) =>
+      CREATE_EXTRA(request(`/api/v1/courses/${course.id}/assignments`, { body: { title }, token }), params('courseId', course.id));
+    expect((await extra('Student extra', tokens.student)).status).toBe(403);
 
-    expect((await extra({ groupId: 'other', title: 'Owner extra' }, tokens.teacher)).status).toBe(403);
-    expect((await extra({ groupId: 'other', title: 'Student extra' }, tokens.student)).status).toBe(403);
-    expect((await extra({ groupId: 'class', title: 'Wrong group' }, tokens.otherTeacher)).status).toBe(403);
-    expect((await extra({ groupId: 'other', title: 'Published without deadline', published: true }, tokens.otherTeacher)).status).toBe(400);
-    expect((await extra({ groupId: 'missing', title: 'Missing group' }, tokens.otherTeacher)).status).toBe(404);
-    expect((await extra({ groupId: 'unassigned', title: 'Unassigned group' }, tokens.otherTeacher)).status).toBe(409);
-
-    const created = await extra({ groupId: 'other', title: 'Practice', deadline: 9_000, published: true }, tokens.otherTeacher);
+    // Use the course owner's assignment so the other teacher needs group access to publish it.
+    const created = await extra('Practice', tokens.teacher);
     expect(created.status).toBe(201);
-    const body = await created.json();
-    expect(body.assignment.groupAssignment).toMatchObject({ groupId: 'other', deadline: 9_000, publishedAt: now() });
-    expect(body.assignment.courseAssignment).toMatchObject({ courseId: course.id, authorId: 'otherTeacher' });
+    const { assignment } = await created.json();
+    expect(assignment).toMatchObject({ courseId: course.id, authorId: 'teacher', title: 'Practice' });
+    const publications = () => sqlite.prepare('SELECT * FROM group_assignments WHERE course_assignment_id = ?').all(assignment.id);
+    expect(publications()).toEqual([]);
+    const publish = (body: Record<string, unknown>, token: string, assignmentId = assignment.id) =>
+      PUBLISH_ASSIGNMENT(request(`/api/v1/assignments/${assignmentId}/publish`, { body, token }), params('assignmentId', assignmentId));
+
+    const wrongGroup = await publish({ groupId: 'class', deadline: 9_000 }, tokens.otherTeacher);
+    expect(wrongGroup.status).toBe(403);
+    expect(await wrongGroup.json()).toMatchObject({ error: { code: 'FORBIDDEN' } });
+    expect((await publish({ groupId: 'other', deadline: 9_000 }, tokens.student)).status).toBe(403);
+    expect((await publish({ groupId: 'other' }, tokens.otherTeacher)).status).toBe(400);
+    expect((await publish({ groupId: 'other', deadline: 9_000 }, tokens.otherTeacher, 'missing')).status).toBe(404);
+    expect((await publish({ groupId: 'unassigned', deadline: 9_000 }, tokens.otherTeacher)).status).toBe(409);
+    expect(publications()).toEqual([]);
+
+    const published = await publish({ groupId: 'other', deadline: 9_000 }, tokens.otherTeacher);
+    expect(published.status).toBe(201);
+    const { publication } = await published.json();
+    expect(publication).toMatchObject({ assignmentId: assignment.id, groupId: 'other', deadline: 9_000, publishedAt: now() });
+    expect(publications()).toMatchObject([{ id: publication.id, group_id: 'other', deadline: 9_000, published_at: now() }]);
+
+    const teacherExtra = await extra('Extra practice', tokens.otherTeacher);
+    expect(teacherExtra.status).toBe(201);
+    expect((await teacherExtra.json()).assignment).toMatchObject({ courseId: course.id, authorId: 'otherTeacher' });
+    expect(sqlite.prepare('SELECT * FROM courses WHERE id = ?').get(course.id)).toEqual(originalCourse);
 
     const library = await LIST_COURSES(request('/api/v1/courses', { token: tokens.teacher }));
     expect((await library.json()).courses.map((row: { id: string }) => row.id)).toContain(course.id);
