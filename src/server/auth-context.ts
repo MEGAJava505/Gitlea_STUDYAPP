@@ -7,6 +7,7 @@ import {
   SessionStore,
 } from '../shared/contracts';
 import { SESSION_COOKIE_NAME } from '../domain/auth/session';
+import { createProductionServices } from './production-services';
 
 /** Reads the opaque session token from the request's Cookie header. */
 export function readSessionCookie(req: Request): string | null {
@@ -62,8 +63,8 @@ export type AuthContext = ReturnType<typeof createAuthContext>;
 export interface AppServices {
   sessions: SessionStore;
   identities: IdentityService;
-  assignments: AssignmentStateMachine;
-  permissions: PermissionChecker;
+  assignments?: AssignmentStateMachine;
+  permissions?: PermissionChecker;
   audit: AuditLogWriter;
 }
 
@@ -74,8 +75,6 @@ export function configureServices(services: AppServices): void {
 }
 
 export function getServices(): AppServices {
-  if (!container) {
-    throw new Error('Application services are not configured');
-  }
+  container ??= createProductionServices();
   return container;
 }

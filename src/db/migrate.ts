@@ -20,7 +20,9 @@ export function openSqliteDatabase(databaseUrl = process.env.DATABASE_URL ?? 'fi
 export async function migrateDatabase(databaseUrl = process.env.DATABASE_URL ?? 'file:./data/local-github.sqlite'): Promise<void> {
   const sqlite = openSqliteDatabase(databaseUrl);
   try {
-    migrate(drizzle(sqlite), { migrationsFolder: fileURLToPath(new URL('../../drizzle', import.meta.url)) });
+    // Resolved at runtime so bundlers do not try to statically bundle the SQL folder.
+    const migrationsFolder = process.env.MIGRATIONS_FOLDER ?? resolve(process.cwd(), 'drizzle');
+    migrate(drizzle(sqlite), { migrationsFolder });
   } finally {
     sqlite.close();
   }

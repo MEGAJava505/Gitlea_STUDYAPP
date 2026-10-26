@@ -10,6 +10,7 @@ import { defineConfig } from 'vitest/config';
  * `npm run test:unit` rather than silently passing.
  */
 export default defineConfig({
+  cacheDir: '.vite',
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

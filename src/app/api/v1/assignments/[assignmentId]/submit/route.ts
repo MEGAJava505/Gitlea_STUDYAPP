@@ -1,4 +1,4 @@
-import { AssignmentId, errors, toErrorBody } from '../../../../../../shared/contracts';
+import { AssignmentId, DomainError, errors, toErrorBody } from '../../../../../../shared/contracts';
 import { createAuthContext, getServices } from '../../../../../../server/auth-context';
 
 interface SubmitBody {
@@ -13,6 +13,7 @@ export async function POST(
   try {
     const { assignmentId } = await ctx.params;
     const { sessions, identities, assignments } = getServices();
+    if (!assignments) throw new DomainError('UNAVAILABLE', 'Assignment service is not configured', 503);
     const principal = await createAuthContext({ sessions, identities }).principal(req);
     if (!principal) throw errors.unauthenticated();
 

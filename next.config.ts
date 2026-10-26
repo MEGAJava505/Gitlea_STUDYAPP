@@ -15,6 +15,7 @@ const nextConfig: NextConfig = {
   // Production certificate handling is owned by the reverse proxy (PROXY_HTTPS_PORT);
   // the app itself does not terminate TLS.
   output: 'standalone',
+  experimental: { authInterrupts: true },
 };
 
 export default nextConfig;
