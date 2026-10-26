@@ -9,6 +9,7 @@ import {
 import { SESSION_COOKIE_NAME } from '../domain/auth/session';
 import { createProductionServices } from './production-services';
 import type { CourseService } from '../domain/courses/service';
+import type { DeadlineSweeper } from '../domain/assignments/deadline-sweeper';
 
 /** Reads the opaque session token from the request's Cookie header. */
 export function readSessionCookie(req: Request): string | null {
@@ -65,6 +66,7 @@ export interface AppServices {
   sessions: SessionStore;
   identities: IdentityService;
   assignments?: AssignmentStateMachine;
+  deadlineSweeper?: DeadlineSweeper;
   courses?: CourseService;
   permissions?: PermissionChecker;
   audit: AuditLogWriter;

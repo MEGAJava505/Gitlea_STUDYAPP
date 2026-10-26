@@ -9,6 +9,8 @@ import { IdentityServiceImpl } from '../domain/identity';
 import { AssignmentStateMachineImpl } from '../domain/assignments/state-machine';
 import { PermissionCheckerImpl } from '../domain/permissions';
 import { DbAssignmentRepository } from './db-assignment-repository';
+import { DbDeadlineSweeperRepository } from './db-deadline-sweeper-repository';
+import { DeadlineSweeper } from '../domain/assignments/deadline-sweeper';
 import { GiteaSubmissionAdapter } from './ports/gitea-submission-adapter';
 import { openSqliteDatabase } from '../db/migrate';
 import * as tables from '../db/schema';
@@ -85,6 +87,7 @@ export function createProductionServices(): AppServices {
     identities: new IdentityServiceImpl({ roles, audit }),
     courses: new CourseService({ db, now: Date.now }),
     assignments,
+    deadlineSweeper: new DeadlineSweeper({ repo: new DbDeadlineSweeperRepository(db), audit, now: Date.now }),
     permissions,
     audit,
   };

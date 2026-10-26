@@ -97,10 +97,6 @@ class FakeGitea implements GiteaProvisioningPort {
   async grantWriteAccess(): Promise<void> {}
   async protectBranch(): Promise<void> {}
 
-  async createProtectedSubmissionRef(): Promise<{ protectedRef: string }> {
-    throw new Error('not used');
-  }
-
   async createPullRequest(): Promise<{ number: number }> {
     throw new Error('not used');
   }

@@ -20,13 +20,6 @@ export interface GiteaProvisioningPort {
   /** Protects a branch against force-push and direct commits. */
   protectBranch(input: { repo: string; branch: string }): Promise<void>;
 
-  /** Creates the immutable `submission/<attempt>` snapshot for a commit. */
-  createProtectedSubmissionRef(input: {
-    repo: string;
-    commitSha: string;
-    attempt: number;
-  }): Promise<{ protectedRef: string }>;
-
   /** Creates a pull request from head to base. */
   createPullRequest(input: {
     repo: string;
@@ -125,22 +118,6 @@ export class GiteaProvisioningAdapter implements GiteaProvisioningPort {
         enable_merge_whitelist: false,
       }),
     });
-  }
-
-  async createProtectedSubmissionRef(input: {
-    repo: string;
-    commitSha: string;
-    attempt: number;
-  }): Promise<{ protectedRef: string }> {
-    const refName = `submission/${input.attempt}`;
-    await this.fetch(`/api/v1/repos/${input.repo}/git/refs`, {
-      method: 'POST',
-      body: JSON.stringify({
-        ref: `refs/${refName}`,
-        sha: input.commitSha,
-      }),
-    });
-    return { protectedRef: refName };
   }
 
   async createPullRequest(input: {
