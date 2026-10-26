@@ -93,6 +93,10 @@ export class ActivationServiceImpl {
       tokenHmac: token.tokenHmac, qrTokenHmac: token.qrTokenHmac,
       studentId: student.studentId, email: token.email, now: this.deps.now(),
     })) return this.conflict(input.studentId, 'concurrent_conflict');
+    await this.deps.audit.append({
+      actorId: student.userId, eventType: 'activation.succeeded', targetType: 'student',
+      targetId: student.studentId, payload: {},
+    });
     return { userId: student.userId, studentId: student.studentId };
   }
 

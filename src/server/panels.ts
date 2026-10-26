@@ -1,4 +1,16 @@
 import { errors, Role, SessionPrincipal } from '../shared/contracts';
+import { forbidden, unauthorized } from 'next/navigation';
+import { DomainError } from '../shared/contracts';
+
+export function requirePageAccess(check: () => SessionPrincipal): SessionPrincipal {
+  try {
+    return check();
+  } catch (error) {
+    if (error instanceof DomainError && error.status === 401) unauthorized();
+    if (error instanceof DomainError && error.status === 403) forbidden();
+    throw error;
+  }
+}
 
 function requirePanelRole(
   principal: SessionPrincipal | null,

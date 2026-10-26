@@ -52,9 +52,13 @@ function setup() {
 
 describe('ActivationService', () => {
   it('activates an imported student after matching the email-link identity and Student ID', async () => {
-    const { activation, emailToken } = setup();
+    const { activation, emailToken, events } = setup();
     const { token } = await emailToken();
     await expect(activation.activate({ token, studentId: '2400051' })).resolves.toEqual({ userId, studentId: '2400051' });
+    expect(events).toEqual([{
+      actorId: userId, eventType: 'activation.succeeded', targetType: 'student', targetId: '2400051',
+      payload: {},
+    }]);
   });
 
   it('audits a mismatched Student ID without disclosing the email or bearer token', async () => {
@@ -100,7 +104,8 @@ describe('ActivationService', () => {
     ]);
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
-    expect(events).toHaveLength(1);
+    expect(events.filter((event) => event.eventType === 'activation.succeeded')).toHaveLength(1);
+    expect(events.filter((event) => event.eventType === 'activation.conflict')).toHaveLength(1);
   });
 
   it('keeps the shared QR usable by different students', async () => {
@@ -151,7 +156,8 @@ describe('ActivationService', () => {
     for (const link of [token, second.token]) {
       await expect(activation.activate({ token: link, studentId: '2400051' })).rejects.toMatchObject({ code: 'CONFLICT' });
     }
-    expect(events.map((event) => event.payload.reason)).toEqual(['invalid_token', 'not_pending']);
+    expect(events.filter((event) => event.eventType === 'activation.conflict').map((event) => event.payload.reason))
+      .toEqual(['invalid_token', 'not_pending']);
   });
 
   it.each(['active', 'disabled'] as const)('refuses students in state %s', async (state) => {

@@ -93,7 +93,7 @@ export class GroupService {
   private async writeAudit(eventType: GroupAuditEventType, targetId: string, payload: Record<string, unknown>): Promise<void> {
     const input: AuditInput = {
       actorId: this.actorId,
-      eventType: eventType as AuditInput['eventType'],
+      eventType,
       targetType: 'group',
       targetId,
       payload,

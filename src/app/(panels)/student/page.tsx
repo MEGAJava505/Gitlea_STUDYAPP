@@ -1,6 +1,6 @@
 import { headers } from 'next/headers';
 import { createAuthContext, getServices } from '../../../server/auth-context';
-import { requireStudentPanel } from '../../../server/panels';
+import { requirePageAccess, requireStudentPanel } from '../../../server/panels';
 
 export default async function StudentPanelPage() {
   const requestHeaders = await headers();
@@ -10,7 +10,7 @@ export default async function StudentPanelPage() {
       headers: requestHeaders.get('cookie') ? { cookie: requestHeaders.get('cookie')! } : undefined,
     }),
   );
-  requireStudentPanel(principal);
+  requirePageAccess(() => requireStudentPanel(principal));
 
   return (
     <section>

@@ -1,6 +1,6 @@
 import { headers } from 'next/headers';
 import { createAuthContext, getServices } from '../../../server/auth-context';
-import { requireAdminPanel } from '../../../server/panels';
+import { requirePageAccess, requireAdminPanel } from '../../../server/panels';
 
 export default async function AdminPanelPage() {
   const requestHeaders = await headers();
@@ -10,7 +10,7 @@ export default async function AdminPanelPage() {
       headers: requestHeaders.get('cookie') ? { cookie: requestHeaders.get('cookie')! } : undefined,
     }),
   );
-  requireAdminPanel(principal);
+  requirePageAccess(() => requireAdminPanel(principal));
 
   return (
     <section>

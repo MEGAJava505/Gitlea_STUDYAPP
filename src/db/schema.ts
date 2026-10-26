@@ -42,6 +42,13 @@ export const userRoles = sqliteTable('user_roles', {
   check('user_roles_role_check', sql`${table.role} IN ('student', 'teacher', 'admin', 'owner')`),
 ]);
 
+export const sessions = sqliteTable('sessions', {
+  tokenHash: text('token_hash').primaryKey().notNull(),
+  userId: text('user_id').notNull().references(() => users.id, restrict),
+  expiresAt: integer('expires_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+}, (table) => [index('sessions_user_idx').on(table.userId), index('sessions_expiry_idx').on(table.expiresAt)]);
+
 export const studentProfiles = sqliteTable('student_profiles', {
   id: id(),
   userId: text('user_id').notNull().references(() => users.id, restrict),

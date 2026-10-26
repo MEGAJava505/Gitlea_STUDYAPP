@@ -207,6 +207,6 @@ describe('SQLite data invariants', () => {
     await seedDatabase(databaseUrl);
     expect(snapshot()).toEqual(first);
     expect(sqlite.pragma('foreign_key_check')).toEqual([]);
-    expect(tableNames).toHaveLength(23);
+    expect(tableNames).toHaveLength(24);
   });
 });

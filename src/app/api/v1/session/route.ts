@@ -19,6 +19,7 @@ import { serializeCookie } from '../../../../domain/auth/session';
  */
 export async function POST(req: Request): Promise<Response> {
   try {
+    if (process.env.NODE_ENV === 'production') throw errors.forbidden('Session issuance requires a verified identity provider');
     const body = (await req.json().catch(() => null)) as { userId?: string } | null;
     if (!body?.userId) throw errors.invalidInput('userId is required');
 

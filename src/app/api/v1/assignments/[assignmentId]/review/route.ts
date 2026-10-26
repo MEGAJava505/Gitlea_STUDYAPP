@@ -1,5 +1,6 @@
 import {
   AssignmentId,
+  DomainError,
   errors,
   SubmissionId,
   toErrorBody,
@@ -21,6 +22,7 @@ export async function POST(
   try {
     const { assignmentId } = await ctx.params;
     const { sessions, identities, assignments } = getServices();
+    if (!assignments) throw new DomainError('UNAVAILABLE', 'Assignment service is not configured', 503);
     const principal = await createAuthContext({ sessions, identities }).principal(req);
     if (!principal) throw errors.unauthenticated();
 
