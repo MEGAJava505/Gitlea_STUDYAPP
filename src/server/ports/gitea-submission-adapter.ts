@@ -140,6 +140,25 @@ export class GiteaSubmissionAdapter implements GiteaSubmissionPort {
     return { protectedRef: `refs/heads/${branch}` };
   }
 
+  async ensureReviewPullRequest(input: {
+    repoFullName: string;
+    protectedRef: string;
+    attempt: number;
+  }): Promise<{ number: number }> {
+    const repo = `/api/v1/repos/${input.repoFullName}`;
+    const head = input.protectedRef.replace(/^refs\/heads\//, '');
+    const { default_branch: base } = await this.fetch<{ default_branch: string }>(repo);
+    const existing = await this.getOrNull<{ number: number }>(
+      `${repo}/pulls/${encodeURIComponent(base)}/${head.split('/').map(encodeURIComponent).join('/')}`,
+    );
+    if (existing) return { number: existing.number };
+    const created = await this.fetch<{ number: number }>(`${repo}/pulls`, {
+      method: 'POST',
+      body: JSON.stringify({ base, head, title: `Submission ${input.attempt}` }),
+    });
+    return { number: created.number };
+  }
+
   async getExistingSubmission(input: {
     repoFullName: string;
     attempt: number;

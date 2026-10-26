@@ -240,6 +240,8 @@ export class FakeGitea implements GiteaSubmissionPort {
   commits = new Set<string>();
   snapshots: Array<{ repoFullName: string; attempt: number; commitSha: string; protectedRef: string }> = [];
   failSnapshot = false;
+  failPullRequest = false;
+  pullRequests: Array<{ repoFullName: string; protectedRef: string; number: number }> = [];
 
   async hasCommit(input: { repoFullName: string; commitSha: string }): Promise<boolean> {
     return this.commits.has(input.commitSha);
@@ -254,6 +256,21 @@ export class FakeGitea implements GiteaSubmissionPort {
     const protectedRef = `submission/${input.attempt}`;
     this.snapshots.push({ ...input, protectedRef });
     return { protectedRef };
+  }
+
+  async ensureReviewPullRequest(input: {
+    repoFullName: string;
+    protectedRef: string;
+    attempt: number;
+  }): Promise<{ number: number }> {
+    if (this.failPullRequest) throw new Error('pull request boom');
+    const existing = this.pullRequests.find(
+      (pr) => pr.repoFullName === input.repoFullName && pr.protectedRef === input.protectedRef,
+    );
+    if (existing) return { number: existing.number };
+    const number = this.pullRequests.length + 1;
+    this.pullRequests.push({ repoFullName: input.repoFullName, protectedRef: input.protectedRef, number });
+    return { number };
   }
 
   async getExistingSubmission(input: {

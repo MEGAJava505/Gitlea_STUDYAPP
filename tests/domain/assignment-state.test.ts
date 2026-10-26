@@ -46,7 +46,26 @@ describe('submit', () => {
     expect(result.submission.protectedRef).toBe('submission/1');
     expect(result.submission.submittedAt).toBe(500);
     expect(w.gitea.snapshots).toHaveLength(1);
+    expect(w.gitea.pullRequests).toEqual([{ repoFullName: w.link.giteaRepoFullName, protectedRef: 'submission/1', number: 1 }]);
     expect(w.auditRepo.events.some((e) => e.eventType === 'submission.created')).toBe(true);
+  });
+
+  it('does not report success when the review pull request cannot be opened', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    w.gitea.failPullRequest = true;
+
+    await expect(
+      w.machine.submit({ actor: principal(w.student, ['student']), assignmentId: w.assignment.id, commitSha: COMMIT, idempotencyKey: KEY }),
+    ).rejects.toMatchObject({ code: 'INTEGRATION_ERROR' });
+    await expect(w.repo.listSubmissions(w.link.id)).resolves.toHaveLength(0);
+    expect(w.auditRepo.events.some((e) => e.payload.reason === 'review_pull_request_failed')).toBe(true);
+
+    // Reconciliation: the retry reuses the protected snapshot and opens the PR once.
+    w.gitea.failPullRequest = false;
+    const retry = await w.machine.submit({ actor: principal(w.student, ['student']), assignmentId: w.assignment.id, commitSha: COMMIT, idempotencyKey: KEY });
+    expect(retry.submission.attempt).toBe(1);
+    expect(w.gitea.snapshots).toHaveLength(1);
+    expect(w.gitea.pullRequests).toHaveLength(1);
   });
 
   it('rejects a commit that does not exist remotely', async () => {

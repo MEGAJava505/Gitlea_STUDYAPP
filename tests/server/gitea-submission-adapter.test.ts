@@ -187,6 +187,31 @@ describe('GiteaSubmissionAdapter (Gitea 1.27.3 API)', () => {
     });
   });
 
+  describe('ensureReviewPullRequest', () => {
+    const input = { repoFullName: 'org/repo', protectedRef: 'refs/heads/submission/2', attempt: 2 };
+
+    it('opens a PR from the snapshot branch to the default branch', async () => {
+      stub.on('GET', '', { status: 200, body: { default_branch: 'main' } });
+      stub.on('GET', '/pulls/main/submission/2', { status: 404, body: 'not found' });
+      stub.on('POST', '/pulls', { status: 201, body: { number: 7 } });
+      await expect(adapter.ensureReviewPullRequest(input)).resolves.toEqual({ number: 7 });
+      expect(stub.calls.at(-1)?.body).toEqual({ base: 'main', head: 'submission/2', title: 'Submission 2' });
+    });
+
+    it('reuses an existing PR on retry', async () => {
+      stub.on('GET', '', { status: 200, body: { default_branch: 'main' } });
+      stub.on('GET', '/pulls/main/submission/2', { status: 200, body: { number: 5 } });
+      await expect(adapter.ensureReviewPullRequest(input)).resolves.toEqual({ number: 5 });
+      expect(stub.calls.some((c) => c.method === 'POST')).toBe(false);
+    });
+
+    it('propagates non-404 lookup errors', async () => {
+      stub.on('GET', '', { status: 200, body: { default_branch: 'main' } });
+      stub.on('GET', '/pulls/main/submission/2', { status: 500, body: 'boom' });
+      await expect(adapter.ensureReviewPullRequest(input)).rejects.toThrow('500');
+    });
+  });
+
   describe('token redaction', () => {
     it('redacts the admin token from propagated errors and logs', async () => {
       const logs: string[] = [];

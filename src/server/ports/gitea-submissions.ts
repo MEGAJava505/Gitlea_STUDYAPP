@@ -17,6 +17,16 @@ export interface GiteaSubmissionPort {
   }): Promise<{ protectedRef: string }>;
 
   /**
+   * Ensures exactly one open review Pull Request from the snapshot branch to
+   * the repository's default (original assignment) branch. Idempotent.
+   */
+  ensureReviewPullRequest(input: {
+    repoFullName: string;
+    protectedRef: string;
+    attempt: number;
+  }): Promise<{ number: number }>;
+
+  /**
    * Returns a previously created snapshot for the given attempt, if one exists.
    * Used to reconcile a network retry after a partially committed submit.
    */
