@@ -1,8 +1,10 @@
 import { and, desc, eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { redact } from '../domain/audit';
 import {
   type AssignmentRepository,
+  type AuditInput,
   type AssignmentView,
   type AssignmentId,
   type NewReview,
@@ -15,6 +17,7 @@ import {
   type UserId,
 } from '../shared/contracts';
 import {
+  auditEvents,
   courseAssignments,
   groupAssignments,
   repositoryLinks,
@@ -99,6 +102,14 @@ export class DbAssignmentRepository implements AssignmentRepository {
   }
 
   async insertSubmission(input: NewSubmission): Promise<SubmissionRecord> {
+    return this.persistSubmission(input);
+  }
+
+  async insertSubmissionWithAudit(input: NewSubmission, audit: Omit<AuditInput, 'targetId'>): Promise<SubmissionRecord> {
+    return this.persistSubmission(input, audit);
+  }
+
+  private persistSubmission(input: NewSubmission, audit?: Omit<AuditInput, 'targetId'>): SubmissionRecord {
     const id = randomUUID() as SubmissionId;
     this.db.transaction((tx) => {
       tx
@@ -120,6 +131,19 @@ export class DbAssignmentRepository implements AssignmentRepository {
         .set({ status: input.status })
         .where(eq(repositoryLinks.id, input.repositoryLinkId))
         .run();
+      // Synchronous SQL on this exact transaction handle: any audit failure
+      // rolls back both writes above, including immutable submission rows.
+      if (audit) {
+        tx.insert(auditEvents).values({
+          id: randomUUID(),
+          actorId: audit.actorId,
+          eventType: audit.eventType,
+          targetType: audit.targetType,
+          targetId: id,
+          payload: redact(audit.payload) as Record<string, unknown>,
+          occurredAt: Date.now(),
+        }).run();
+      }
     });
     return {
       id,

@@ -6,6 +6,7 @@ import {
   AssignmentView,
   AuditEvent,
   AuditEventId,
+  AuditInput,
   AuditLogWriter,
   AuditRepository,
   Clock,
@@ -169,7 +170,7 @@ export class InMemoryAssignmentRepository implements AssignmentRepository, Acces
   private seq = { submission: 0, review: 0 };
   private clock: Clock;
 
-  constructor(clock: Clock = () => Date.now()) {
+  constructor(clock: Clock = () => Date.now(), private readonly submissionAudit = new InMemoryAuditRepository()) {
     this.clock = clock;
   }
 
@@ -209,6 +210,17 @@ export class InMemoryAssignmentRepository implements AssignmentRepository, Acces
   async insertSubmission(input: NewSubmission): Promise<SubmissionRecord> {
     this.seq.submission += 1;
     const record: SubmissionRecord = { id: sid(`sub-${this.seq.submission}`), ...input };
+    this.submissions.set(record.id, record);
+    const list = this.submissionsByLink.get(input.repositoryLinkId) ?? [];
+    list.push(record);
+    this.submissionsByLink.set(input.repositoryLinkId, list);
+    return record;
+  }
+
+  async insertSubmissionWithAudit(input: NewSubmission, audit: Omit<AuditInput, 'targetId'>): Promise<SubmissionRecord> {
+    // Stage the record until audit succeeds, mirroring the adapter's rollback.
+    const record: SubmissionRecord = { id: sid(`sub-${++this.seq.submission}`), ...input };
+    await makeAuditWriter(this.submissionAudit, this.clock).append({ ...audit, targetId: record.id });
     this.submissions.set(record.id, record);
     const list = this.submissionsByLink.get(input.repositoryLinkId) ?? [];
     list.push(record);
@@ -345,14 +357,14 @@ export function makeAssignmentWorld(overrides?: {
     studentId: student,
   });
 
-  const repo = new InMemoryAssignmentRepository(now);
+  const auditRepo = new InMemoryAuditRepository();
+  const repo = new InMemoryAssignmentRepository(now, auditRepo);
   repo.seedAssignment(assignment);
   repo.seedLink(link);
 
   const gitea = new FakeGitea();
   gitea.commits.add(overrides?.commitSha ?? 'abc123');
 
-  const auditRepo = new InMemoryAuditRepository();
   const audit = makeAuditWriter(auditRepo, now);
   const permissions = new PermissionCheckerImpl({ resolver: repo, audit });
   const machine = new AssignmentStateMachineImpl({ repo, gitea, permissions, audit, now });

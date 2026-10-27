@@ -76,6 +76,9 @@ export function createProductionServices(): AppServices {
     },
   };
   const audit = new AuditLogWriterImpl({ audit: auditRepository, now: Date.now });
+  // Successful submission audits are written by assignmentRepo on its own
+  // synchronous transaction handle. This general writer serves replay/conflict
+  // and other events only; never await it inside a SQLite transaction.
   const assignmentRepo = new DbAssignmentRepository(db);
   const permissions = new PermissionCheckerImpl({ resolver: assignmentRepo, audit });
   const giteaSubmissions = new GiteaSubmissionAdapter();

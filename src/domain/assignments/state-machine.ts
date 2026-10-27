@@ -220,7 +220,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
 
     let submission: SubmissionRecord;
     try {
-      submission = await this.repo.insertSubmission({
+      submission = await this.repo.insertSubmissionWithAudit({
         repositoryLinkId: link.id,
         attempt,
         commitSha: effectiveSha,
@@ -228,6 +228,11 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
         status: 'submitted',
         submittedAt: now,
         idempotencyKey,
+      }, {
+        actorId: actor.userId,
+        eventType: alreadyExisted ? 'submission.idempotent' : 'submission.created',
+        targetType: 'submission',
+        payload: { attempt, commitSha: effectiveSha, protectedRef },
       });
     } catch (error) {
       // A uniqueness loser must replay the durable winner, never invent success.
@@ -235,14 +240,6 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
       if (winner) return this.replay(input, winner);
       throw error;
     }
-
-    await this.audit.append({
-      actorId: actor.userId,
-      eventType: alreadyExisted ? 'submission.idempotent' : 'submission.created',
-      targetType: 'submission',
-      targetId: submission.id,
-      payload: { attempt, commitSha: effectiveSha, protectedRef },
-    });
 
     return { submission, alreadyExisted };
   }

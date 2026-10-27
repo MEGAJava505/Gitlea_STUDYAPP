@@ -267,6 +267,11 @@ export interface AssignmentRepository {
   getSubmissionByIdempotencyKey(linkId: RepositoryLinkId, key: string): Promise<SubmissionRecord | null>;
   getSubmission(id: SubmissionId): Promise<SubmissionRecord | null>;
   insertSubmission(input: NewSubmission): Promise<SubmissionRecord>;
+  /** Commit submission, link status and this success audit in one local transaction.
+   * The adapter supplies targetId from the inserted record; no async callback or
+   * external AuditLogWriter may run while the transaction is open.
+   */
+  insertSubmissionWithAudit(input: NewSubmission, audit: Omit<AuditInput, 'targetId'>): Promise<SubmissionRecord>;
   updateSubmissionStatus(id: SubmissionId, status: AssignmentStatus): Promise<void>;
   insertReview(input: NewReview): Promise<ReviewRecord>;
 }
