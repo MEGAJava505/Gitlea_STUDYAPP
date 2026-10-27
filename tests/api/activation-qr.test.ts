@@ -107,3 +107,26 @@ it('renders an actual activation form and never uses an external token image',as
  const html=renderToStaticMarkup(React.createElement(Page));
  expect(html).toContain('Activate student account');expect(html).toContain('Open the QR invitation');expect(html).not.toContain('<img');
 });
+it('serves issuance, email and redemption over real isolated HTTP with SQLite and injected mail',async()=>{
+ const {createServer}=await import('node:http');const f=fixture();
+ const server=createServer(async(incoming,outgoing)=>{
+  try{
+   const chunks:Buffer[]=[];for await(const chunk of incoming)chunks.push(Buffer.from(chunk));
+   const req=new Request('http://127.0.0.1'+incoming.url,{method:incoming.method,headers:{'content-type':'application/json',...(incoming.headers.authorization?{authorization:incoming.headers.authorization}:{})},body:Buffer.concat(chunks).toString()});
+   const response=incoming.url==='/issue'?await f.handlers.issue(req,'g'):incoming.url==='/email'?await f.handlers.email(req):await f.handlers.redeem(req);
+   outgoing.writeHead(response.status,Object.fromEntries(response.headers));outgoing.end(await response.text());
+  }catch{outgoing.writeHead(500);outgoing.end();}
+ });
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ try{
+  const address=server.address() as {port:number};const base='http://127.0.0.1:'+address.port;
+  const post=(path:string,body:unknown,auth=false)=>fetch(base+path,{method:'POST',headers:{'content-type':'application/json',...(auth?{authorization:'teacher'}:{})},body:JSON.stringify(body)});
+  const denied=await post('/issue',{});expect(denied.status).toBe(401);expect(await denied.json()).toEqual({error:{code:'UNAUTHENTICATED',message:'Authentication required'}});
+  const issued=await post('/issue',{},true);expect(issued.status).toBe(201);const data=await issued.json();
+  const qrToken=new URLSearchParams(new URL(data.url).hash.slice(1)).get('qr');
+  const mailed=await post('/email',{qrToken,email:'s@jdu.uz'});expect(mailed.status).toBe(202);expect(await mailed.json()).toEqual({sent:true});
+  const token=new URLSearchParams(new URL(f.outbox[0]!.url).hash.slice(1)).get('email');
+  const redeemed=await post('/redeem',{token,studentId:'S1'});expect(redeemed.status).toBe(200);expect(await redeemed.json()).toEqual({activated:true,loginRequired:true});
+  expect((await post('/redeem',{token,studentId:'S1'})).status).toBe(409);
+ }finally{await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));}
+});

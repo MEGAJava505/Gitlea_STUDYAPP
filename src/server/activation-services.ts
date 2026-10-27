@@ -64,7 +64,9 @@ export function createActivationHandlers(s:ActivationServices, principal:(req:Re
  async function body(req:Request) {
   if (req.headers.get('origin') && req.headers.get('origin')!==new URL(req.url).origin) throw errors.forbidden();
   if (!req.headers.get('content-type')?.startsWith('application/json')) throw errors.invalidInput('JSON required');
-  const raw=await req.text();if(raw.length>4096) throw errors.invalidInput('Request too large');
+  const reader=req.body?.getReader();const chunks:Uint8Array[]=[];let length=0;
+  if(reader) {while(true){const part=await reader.read();if(part.done)break;length+=part.value.byteLength;if(length>4096){await reader.cancel();throw errors.invalidInput('Request too large');}chunks.push(part.value);}}
+  const raw=Buffer.concat(chunks).toString('utf8');
   try { const value=JSON.parse(raw);if(!value || typeof value!=='object' || Array.isArray(value)) throw 0; return value as Record<string,unknown>; } catch { throw errors.invalidInput('Invalid JSON'); }
  }
  function field(b:Record<string,unknown>,key:string) { const v=b[key];if(typeof v!=='string'||!v.trim()||v.length>256)throw errors.invalidInput('Invalid '+key);return v.trim(); }
