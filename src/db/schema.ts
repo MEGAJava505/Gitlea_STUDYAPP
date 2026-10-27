@@ -135,6 +135,25 @@ export const lessons = sqliteTable('lessons', {
   check('lessons_content_json_check', sql`json_valid(${table.contentMetadata})`),
 ]);
 
+export const materials = sqliteTable('materials', {
+  id: id(),
+  lessonId: text('lesson_id').notNull().references(() => lessons.id, restrict),
+  filename: text('filename').notNull(),
+  contentType: text('content_type').notNull(),
+  storedPath: text('stored_path').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  sha256: text('sha256').notNull(),
+  uploadedBy: text('uploaded_by').notNull().references(() => users.id, restrict),
+  ...timestamps(),
+}, (table) => [
+  uniqueIndex('materials_lesson_filename_unique').on(table.lessonId, table.filename),
+  index('materials_lesson_idx').on(table.lessonId),
+  check('materials_filename_nonempty', sql`length(trim(${table.filename})) > 0`),
+  check('materials_content_type_nonempty', sql`length(trim(${table.contentType})) > 0`),
+  check('materials_size_nonnegative', sql`${table.sizeBytes} >= 0`),
+  check('materials_sha256_hex', sql`length(${table.sha256}) = 64 AND ${table.sha256} NOT GLOB '*[^0-9A-Fa-f]*'`),
+]);
+
 export const lessonPublications = sqliteTable('lesson_publications', {
   id: id(),
   lessonId: text('lesson_id').notNull().references(() => lessons.id, restrict),
@@ -357,6 +376,8 @@ export type CourseGroup = typeof courseGroups.$inferSelect;
 export type NewCourseGroup = typeof courseGroups.$inferInsert;
 export type Lesson = typeof lessons.$inferSelect;
 export type NewLesson = typeof lessons.$inferInsert;
+export type Material = typeof materials.$inferSelect;
+export type NewMaterial = typeof materials.$inferInsert;
 export type LessonPublication = typeof lessonPublications.$inferSelect;
 export type NewLessonPublication = typeof lessonPublications.$inferInsert;
 export type CourseAssignment = typeof courseAssignments.$inferSelect;

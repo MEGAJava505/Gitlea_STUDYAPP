@@ -101,11 +101,12 @@ describe('teacher course workflow with real migrated SQLite and authenticated se
     expect(renderToStaticMarkup(await StudentLibrary())).toContain('Python course');
     as('teacher');
     const materialHtml = renderToStaticMarkup(await MaterialsPage({ params: Promise.resolve({ courseId: course.id, lessonId: lesson.id }) }));
-    expect(materialHtml).toContain('File upload and download are not available yet.');
-    expect(materialHtml).not.toContain('type="file"');
-    // Production container has no MaterialsRepository/blob store. Do not fake a successful byte upload.
+    expect(materialHtml).toContain('type="file"');
+    expect(materialHtml).toContain('Upload material');
+    expect(materialHtml).not.toContain('File upload and download are not available yet.');
+    // Workflow fixture does not configure MATERIALS_STORAGE_ROOT / materials service → API stays unavailable.
     expect((await listMaterials(request('student'), lessonParams(lesson.id))).status).toBe(503);
-    expect((await attachMaterial(request('teacher', { filename: 'slides.pdf', contentType: 'application/pdf', storedPath: '/fake', size: 5, sha256: 'a'.repeat(64) }), lessonParams(lesson.id))).status).toBe(503);
+    expect((await attachMaterial(request('teacher', { filename: 'slides.pdf', contentType: 'application/pdf', storedPath: '/fake', size: 5, sha256: 'a'.repeat(64) }), lessonParams(lesson.id))).status).toBe(400);
     as('other');
     expect((await publishLesson(request('other', { groupId: 'class' }), lessonParams(lesson.id))).status).toBe(403);
     expect((await assignCourse(request('other', { groupId: 'class' }), courseParams(course.id))).status).toBe(403);

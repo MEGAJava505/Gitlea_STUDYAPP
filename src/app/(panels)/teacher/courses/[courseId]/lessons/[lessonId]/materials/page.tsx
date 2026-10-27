@@ -12,5 +12,5 @@ export default async function MaterialsPage({ params }: { params: Promise<{ cour
   catch (error) { coursePageError(error); }
   const lesson = data.lessons.find(item => item.id === lessonId);
   if (!lesson) notFound();
-  return <section><Link href={'/teacher/courses/' + courseId + '/lessons'}>Back to lessons</Link><h2>{lesson.title}: materials</h2><MaterialList lessonId={lessonId} /></section>;
+  return <section><Link href={'/teacher/courses/' + courseId + '/lessons'}>Back to lessons</Link><h2>{lesson.title}: materials</h2><MaterialList lessonId={lessonId} canUpload /></section>;
 }

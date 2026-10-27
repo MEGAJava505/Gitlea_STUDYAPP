@@ -16,6 +16,9 @@ import { DbProvisioningRepository } from './db-provisioning-repository';
 import { GiteaProvisioningAdapter } from './ports/gitea-provisioning';
 import { ProvisioningService } from '../domain/git/provisioning';
 import { GiteaSubmissionAdapter } from './ports/gitea-submission-adapter';
+import { DbMaterialsRepository } from './db-materials-repository';
+import { FilesystemBlobStorage } from './blob-storage-filesystem';
+import { MaterialsService } from '../domain/materials/service';
 import { openSqliteDatabase } from '../db/migrate';
 import * as tables from '../db/schema';
 import * as relations from '../db/relations';
@@ -32,6 +35,7 @@ export function createProductionServices(): AppServices {
   // One database handle for the whole service container. Importing `db` from
   // `../db/client` would open a second connection to the same file.
   const db = drizzle(sqlite, { schema: { ...tables, ...relations } });
+  const storageRoot = process.env.MATERIALS_STORAGE_ROOT;
 
   const roles: RoleRepository = {
     async getUserById(id: UserId) {
@@ -89,7 +93,7 @@ export function createProductionServices(): AppServices {
     audit,
     now: Date.now,
   });
-  return {
+  const services: AppServices = {
     sessions: new SessionStoreImpl({ sessions: sessionRepository, now: Date.now }),
     identities: new IdentityServiceImpl({ roles, audit }),
     courses: new CourseService({ db, now: Date.now }),
@@ -108,4 +112,8 @@ export function createProductionServices(): AppServices {
     permissions,
     audit,
   };
+  if (storageRoot) services.materials = new MaterialsService({
+    repo: new DbMaterialsRepository(db), blobs: new FilesystemBlobStorage(storageRoot), now: Date.now,
+  });
+  return services;
 }
