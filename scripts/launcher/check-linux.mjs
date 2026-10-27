@@ -1,5 +1,14 @@
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,copyFileSync,rmSync,existsSync,readdirSync,statSync} from 'node:fs';import {join,dirname} from 'node:path';import {tmpdir} from 'node:os';import {spawnSync} from 'node:child_process';import {createHash} from 'node:crypto';
-const root=process.argv[2];const ps=readFileSync(root+'/scripts/launcher/start.ps1','utf8');if(/function\s+Docker\b/i.test(ps)&&/&\s+docker\b/i.test(ps))throw Error('PowerShell Docker function recursion regression');if(!ps.includes("$values['NODE_ENV'] -ne 'production'"))throw Error('PowerShell production-only safety gate missing');if(!existsSync(root+'/start.sh'))throw Error('Launcher not present');const temporary=mkdtempSync(join(tmpdir(),'Gitlea launcher with spaces-'));let passed=0;
+const root=process.argv[2];const ps=readFileSync(root+'/scripts/launcher/start.ps1','utf8');if(/function\s+Docker\b/i.test(ps)&&/&\s+docker\b/i.test(ps))throw Error('PowerShell Docker function recursion regression');if(!ps.includes("$values['NODE_ENV'] -ne 'production'"))throw Error('PowerShell production-only safety gate missing');
+// Owner laptop regressions: UTF-8 console, engine wait, pull retry, port preflight, no Tee-Object NativeCommandError path.
+if(!/UTF8Encoding/.test(ps)||!/OutputEncoding/.test(ps))throw Error('PowerShell UTF-8 console encoding missing');
+if(/2>&1\s*\|\s*Tee-Object/.test(ps))throw Error('PowerShell still pipes docker stderr into Tee-Object (NativeCommandError)');
+if(!/Wait-DockerEngine|Test-DockerEngine/.test(ps)||!/dockerDesktopLinuxEngine|Docker Desktop/.test(ps))throw Error('PowerShell Docker engine preflight/wait missing');
+if(!/pullRetries|Test-PullRetriable|unexpected EOF/.test(ps))throw Error('PowerShell bounded image-pull retry missing');
+if(!/Test-PortFree|GITEA_HTTP_PORT|PROXY_HTTP_PORT/.test(ps))throw Error('PowerShell port preflight missing');
+if(!/\$LASTEXITCODE/.test(ps))throw Error('PowerShell LASTEXITCODE check missing');
+console.log(JSON.stringify({windowsLauncherStaticChecks:true,passed:true}));
+if(!existsSync(root+'/start.sh'))throw Error('Launcher not present');const temporary=mkdtempSync(join(tmpdir(),'Gitlea launcher with spaces-'));let passed=0;
 const fakeDocker="#!/bin/sh\nprintf \"docker %s\n\" \"$*\" >> \"$MOCK_TRACE\"\nif [ \"$MOCK_ENGINE_FAIL\" = 1 ]; then exit 1; fi\ncase \"$*\" in *version*) echo \"Docker Compose version v2.29.1\";; esac\nexit 0\n";
 const fakeCurl="#!/bin/sh\nc=0; test ! -f \"$MOCK_COUNT\" || c=$(cat \"$MOCK_COUNT\"); c=$((c+1)); echo \"$c\" > \"$MOCK_COUNT\"; printf \"curl %s\n\" \"$*\" >> \"$MOCK_TRACE\"; if [ \"$c\" -le \"$MOCK_FAILS\" ]; then exit 7; fi; case \"$*\" in *http_code*) printf 200;; *) printf '{\"status\":\"ok\"}\n';; esac; exit 0\n";
 const fakeOpen="#!/bin/sh\nprintf \"open %s\n\" \"$*\" >> \"$MOCK_TRACE\"; exit 0\n";
