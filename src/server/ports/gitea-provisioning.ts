@@ -52,6 +52,10 @@ export class GiteaProvisioningAdapter implements GiteaProvisioningPort {
     this.log = config.log ?? (() => undefined);
   }
 
+  private redact(text: string): string {
+    return this.token ? text.split(this.token).join('[REDACTED]') : text;
+  }
+
   private async fetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const headers = {
@@ -60,15 +64,18 @@ export class GiteaProvisioningAdapter implements GiteaProvisioningPort {
       ...init.headers,
     };
 
-    this.log(`Gitea ${init.method ?? 'GET'} ${url.replace(this.token, '[REDACTED]')}`);
-    const response = await fetch(url, { ...init, headers });
+    this.log(`Gitea ${init.method ?? 'GET'} ${this.redact(url)}`);
+    const response = await fetch(url, { ...init, headers }).catch((error: unknown) => {
+      throw new Error(this.redact(error instanceof Error ? error.message : 'Gitea request failed'));
+    });
 
     if (!response.ok) {
       const text = await response.text().catch(() => 'unknown error');
-      const redacted = text.replace(new RegExp(this.token, 'g'), '[REDACTED]');
+      const redacted = this.redact(text);
       throw new Error(`Gitea API error (${response.status}): ${redacted}`);
     }
 
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 
@@ -112,9 +119,11 @@ export class GiteaProvisioningAdapter implements GiteaProvisioningPort {
     await this.fetch(`/api/v1/repos/${input.repo}/branch_protections`, {
       method: 'POST',
       body: JSON.stringify({
-        branch_name: input.branch,
+        rule_name: input.branch,
         enable_push: false,
         enable_push_whitelist: false,
+        enable_force_push: false,
+        enable_bypass_allowlist: false,
         enable_merge_whitelist: false,
       }),
     });

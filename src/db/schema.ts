@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
-import { check, index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, real, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 export const roles = ['student', 'teacher', 'admin', 'owner'] as const;
 export const assignmentStatuses = ['in_progress', 'submitted', 'revision_required', 'passed', 'failed'] as const;
@@ -135,6 +135,25 @@ export const lessons = sqliteTable('lessons', {
   check('lessons_content_json_check', sql`json_valid(${table.contentMetadata})`),
 ]);
 
+export const materials = sqliteTable('materials', {
+  id: id(),
+  lessonId: text('lesson_id').notNull().references(() => lessons.id, restrict),
+  filename: text('filename').notNull(),
+  contentType: text('content_type').notNull(),
+  storedPath: text('stored_path').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  sha256: text('sha256').notNull(),
+  uploadedBy: text('uploaded_by').notNull().references(() => users.id, restrict),
+  ...timestamps(),
+}, (table) => [
+  uniqueIndex('materials_lesson_filename_unique').on(table.lessonId, table.filename),
+  index('materials_lesson_idx').on(table.lessonId),
+  check('materials_filename_nonempty', sql`length(trim(${table.filename})) > 0`),
+  check('materials_content_type_nonempty', sql`length(trim(${table.contentType})) > 0`),
+  check('materials_size_nonnegative', sql`${table.sizeBytes} >= 0`),
+  check('materials_sha256_hex', sql`length(${table.sha256}) = 64 AND ${table.sha256} NOT GLOB '*[^0-9A-Fa-f]*'`),
+]);
+
 export const lessonPublications = sqliteTable('lesson_publications', {
   id: id(),
   lessonId: text('lesson_id').notNull().references(() => lessons.id, restrict),
@@ -201,13 +220,16 @@ export const submissions = sqliteTable('submissions', {
   protectedRef: text('protected_ref').notNull(),
   status: text('status', { enum: assignmentStatuses }).notNull().default('submitted'),
   submittedAt: integer('submitted_at').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
   ...timestamps(),
 }, (table) => [
   uniqueIndex('submissions_repository_attempt_unique').on(table.repositoryLinkId, table.attempt),
   uniqueIndex('submissions_repository_ref_unique').on(table.repositoryLinkId, table.protectedRef),
+  uniqueIndex('submissions_repository_key_unique').on(table.repositoryLinkId, table.idempotencyKey),
   check('submissions_attempt_positive', sql`typeof(${table.attempt}) = 'integer' AND ${table.attempt} > 0`),
   check('submissions_commit_sha_nonempty', sql`length(trim(${table.commitSha})) > 0`),
   check('submissions_ref_nonempty', sql`length(trim(${table.protectedRef})) > 0`),
+  check('submissions_idempotency_key_nonempty', sql`length(trim(${table.idempotencyKey})) > 0`),
   check('submissions_status_check', sql`${table.status} IN ('in_progress', 'submitted', 'revision_required', 'passed', 'failed')`),
 ]);
 
@@ -354,6 +376,8 @@ export type CourseGroup = typeof courseGroups.$inferSelect;
 export type NewCourseGroup = typeof courseGroups.$inferInsert;
 export type Lesson = typeof lessons.$inferSelect;
 export type NewLesson = typeof lessons.$inferInsert;
+export type Material = typeof materials.$inferSelect;
+export type NewMaterial = typeof materials.$inferInsert;
 export type LessonPublication = typeof lessonPublications.$inferSelect;
 export type NewLessonPublication = typeof lessonPublications.$inferInsert;
 export type CourseAssignment = typeof courseAssignments.$inferSelect;
@@ -382,3 +406,24 @@ export type AuditEvent = typeof auditEvents.$inferSelect;
 export type NewAuditEvent = typeof auditEvents.$inferInsert;
 export type SystemSetting = typeof systemSettings.$inferSelect;
 export type NewSystemSetting = typeof systemSettings.$inferInsert;
+
+/** Activation bearer secrets are never persisted; only HMAC fingerprints. */
+export const activationTokens = sqliteTable('activation_tokens', {
+  tokenHmac: text('token_hmac').primaryKey().notNull(),
+  kind: text('kind', { enum: ['qr', 'email'] }).notNull(),
+  groupId: text('group_id').notNull().references(() => groups.id, restrict),
+  email: text('email'),
+  qrTokenHmac: text('qr_token_hmac').references((): AnySQLiteColumn => activationTokens.tokenHmac, restrict),
+  expiresAt: integer('expires_at').notNull(),
+  usedAt: integer('used_at'),
+  revokedAt: integer('revoked_at'),
+}, table => [index('activation_tokens_expiry_idx').on(table.expiresAt),
+ check('activation_tokens_hmac_length', sql`length(${table.tokenHmac}) = 64`),
+ check('activation_tokens_kind', sql`${table.kind} IN ('qr','email')`),
+ check('activation_tokens_shape', sql`(${table.kind} = 'qr' AND ${table.email} IS NULL AND ${table.qrTokenHmac} IS NULL AND ${table.usedAt} IS NULL) OR (${table.kind} = 'email' AND ${table.email} IS NOT NULL AND ${table.qrTokenHmac} IS NOT NULL)`),
+]);
+export const activationRateLimits = sqliteTable('activation_rate_limits', {
+ keyHash: text('key_hash').primaryKey().notNull(),
+ windowStart: integer('window_start').notNull(),
+ attempts: integer('attempts').notNull(),
+}, table => [check('activation_rate_attempts_positive', sql`${table.attempts} > 0`)]);

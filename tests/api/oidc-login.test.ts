@@ -1,0 +1,67 @@
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { generateKeyPair, exportJWK, createLocalJWKSet, SignJWT } from 'jose';
+import { createOidcVerifier } from '../../src/domain/auth/oidc-verifier';
+import { createFileOidcState, createOidcLoginServices, localOidcReturn } from '../../src/server/oidc-login-services';
+import * as factory from '../../src/server/oidc-login-services';
+import { GET as startRoute } from '../../src/app/api/auth/oidc/start/route';
+import { GET as callbackRoute } from '../../src/app/api/auth/oidc/callback/route';
+import { createAuthContext } from '../../src/server/auth-context';
+import { requireAdminPanel, requireTeacherPanel } from '../../src/server/panels';
+import { IdentityServiceImpl } from '../../src/domain/identity';
+import { InMemoryRoleRepository, InMemoryAuditRepository, InMemorySessionRepository, makeAuditWriter, makeSessionStore, uid, makeUser } from '../domain/fakes';
+let keys: Awaited<ReturnType<typeof generateKeyPair>>;
+let verify: ReturnType<typeof createOidcVerifier>;
+const dirs: string[] = [];
+const config = { issuer: 'https://git.example', clientId: 'app', clientSecret: 'test-only-secret', callbackUrl: 'https://app.example/api/auth/oidc/callback', authorizationEndpoint: 'https://git.example/login/oauth/authorize', tokenEndpoint: 'https://git.example/login/oauth/access_token', jwksUri: 'https://git.example/login/oauth/keys' };
+beforeAll(async () => { keys = await generateKeyPair('RS256'); verify = createOidcVerifier({ ...config, key: createLocalJWKSet({ keys: [{ ...await exportJWK(keys.publicKey), kid: 'trusted' }] }) }); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); for (const dir of dirs.splice(0)) rmSync(dir, { force: true, recursive: true }); });
+async function setup(options: { unmapped?: boolean; claims?: Record<string, unknown> } = {}) {
+  let now = Date.now();
+  const dir = mkdtempSync(join(tmpdir(), 'oidc-route-')); dirs.push(dir);
+  const roles = new InMemoryRoleRepository({ users: [makeUser({ id: uid('student'), giteaId: 42 })], roles: [{ userId: uid('student'), role: 'student' }] });
+  const identities = new IdentityServiceImpl({ roles, audit: makeAuditWriter(new InMemoryAuditRepository(), () => now) });
+  const sessions = makeSessionStore(new InMemorySessionRepository(), () => now);
+  let challenge = ''; let requestedNonce = '';
+  const exchange = vi.fn(async (code: string, verifier: string, nonce: string) => {
+    expect(code).toBe('one-time-code');
+    expect(createHash('sha256').update(verifier).digest('base64url')).toBe(challenge);
+    expect(nonce).toBe(requestedNonce);
+    const jwt = await new SignJWT({ nonce, roles: ['admin', 'teacher'], ...options.claims }).setProtectedHeader({ alg: 'RS256', kid: 'trusted' }).setSubject(options.unmapped ? '99' : '42').setIssuer(config.issuer).setAudience(config.clientId).setIssuedAt().setExpirationTime('5m').sign(keys.privateKey);
+    return verify(jwt, nonce);
+  });
+  const mappedUser = vi.fn(async (id: number) => id === 42 ? uid('student') : null);
+  const service = createOidcLoginServices({ config, state: createFileOidcState(dir, () => now), provider: { exchange }, mappedUser, services: () => ({ sessions, identities }), now: () => now });
+  vi.spyOn(factory, 'getOidcLoginServices').mockReturnValue(service);
+  const start = await startRoute(new Request('https://attacker-host.invalid/api/auth/oidc/start?returnTo=/student&userId=admin'));
+  expect(start.status).toBe(302);
+  const auth = new URL(start.headers.get('location')!);
+  expect(auth.origin).toBe('https://git.example'); expect(auth.searchParams.get('redirect_uri')).toBe(config.callbackUrl);
+  expect(auth.searchParams.get('code_challenge_method')).toBe('S256');
+  challenge = auth.searchParams.get('code_challenge')!; requestedNonce = auth.searchParams.get('nonce')!;
+  expect(start.headers.get('set-cookie')).toMatch(/HttpOnly; Secure; SameSite=Lax/);
+  const cookie = start.headers.get('set-cookie')!.split(';')[0]!;
+  const url = config.callbackUrl + '?state=' + auth.searchParams.get('state') + '&code=one-time-code&userId=admin';
+  return { callback: (customCookie = cookie, customUrl = url) => callbackRoute(new Request(customUrl, { headers: { cookie: customCookie } })), advance: () => { now += 300001; }, exchange, mappedUser, sessions, identities, roles };
+}
+describe('real OIDC routes with signed provider fixture (not live Gitea)', () => {
+  it('issues an existing-session-store cookie and retains local student role isolation', async () => {
+    const fixture = await setup(); const response = await fixture.callback();
+    expect(response.status).toBe(303); expect(response.headers.get('location')).toBe('/student');
+    const session = response.headers.getSetCookie().find(value => value.startsWith('session='))!;
+    expect(session).toMatch(/HttpOnly; Secure; SameSite=Lax/);
+    const principal = await createAuthContext(fixture).principal(new Request('https://app.example/student', { headers: { cookie: session.split(';')[0]! } }));
+    expect(principal).toMatchObject({ userId: 'student', roles: ['student'] });
+    expect(() => requireAdminPanel(principal)).toThrow(); expect(() => requireTeacherPanel(principal)).toThrow();
+    expect((await fixture.callback()).status).toBe(400); expect(fixture.exchange).toHaveBeenCalledTimes(1);
+  });
+  it('allows one of two simultaneous callbacks only', async () => { const fixture = await setup(); const results = await Promise.all([fixture.callback(), fixture.callback()]); expect(results.map(r => r.status).sort()).toEqual([303,400]); expect(fixture.exchange).toHaveBeenCalledTimes(1); });
+  it('denies unknown mapped identities without creating accounts', async () => { const fixture = await setup({ unmapped: true }); const response = await fixture.callback(); expect(response.status).toBe(400); expect(await response.json()).toEqual({ error: 'Login failed' }); expect(fixture.roles.users.size).toBe(1); expect(response.headers.get('set-cookie')).not.toContain('session='); });
+  it('denies nonce mismatch and consumes the failed login', async () => { const fixture = await setup({ claims: { nonce: 'wrong' } }); expect((await fixture.callback()).status).toBe(400); expect((await fixture.callback()).status).toBe(400); expect(fixture.exchange).toHaveBeenCalledTimes(1); });
+  it('denies wrong browser, missing state and expired state before exchange', async () => { const fixture = await setup(); expect((await fixture.callback('__Host-oidc=' + 'a'.repeat(43))).status).toBe(400); expect((await fixture.callback('', config.callbackUrl)).status).toBe(400); fixture.advance(); expect((await fixture.callback()).status).toBe(400); expect(fixture.exchange).not.toHaveBeenCalled(); });
+  it('returns generic 503 when provider config is absent', async () => { vi.restoreAllMocks(); vi.stubEnv('OIDC_ISSUER', ''); for (const route of [startRoute, callbackRoute]) { const response = await route(new Request(config.callbackUrl)); expect(response.status).toBe(503); expect(await response.json()).toEqual({ error: 'Login unavailable' }); } });
+  it.each(['//evil.example', '/\\evil.example', 'https://evil.example', '/api/auth/oidc/start', '/%2f%2fevil.example'])('rejects unsafe local return %s', (value) => { expect(() => localOidcReturn(value)).toThrow(); });
+});

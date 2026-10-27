@@ -14,7 +14,10 @@ export async function POST(req: Request): Promise<Response> {
   try {
     const { courses, actor } = await requireCourseContext(req);
     const body = await req.json().catch(() => null) as { title?: string; slug?: string; description?: string } | null;
-    if (!body?.title || !body.slug) throw errors.invalidInput('title and slug are required');
+    if (!body || typeof body.title !== 'string' || !body.title.trim() || typeof body.slug !== 'string' || !body.slug.trim() ||
+      (body.description !== undefined && typeof body.description !== 'string')) {
+      throw errors.invalidInput('title and slug must be nonempty strings; description must be a string');
+    }
     const course = await courses.createCourse({ actor, title: body.title, slug: body.slug, description: body.description });
     return Response.json({ course }, { status: 201 });
   } catch (error) {

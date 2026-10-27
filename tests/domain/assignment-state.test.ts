@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { canTransition } from '../../src/domain/assignments/state-machine';
 import { errors } from '../../src/shared/contracts';
 import { makeAssignmentWorld, principal } from './fakes';
@@ -28,6 +28,22 @@ describe('state machine — transition table', () => {
 });
 
 describe('submit', () => {
+  it('does not persist on audit failure; concurrent same-key retries converge with one success audit', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    const input = { actor: principal(w.student, ['student']), assignmentId: w.assignment.id,
+      commitSha: COMMIT, idempotencyKey: KEY };
+    vi.spyOn(w.auditRepo, 'append').mockRejectedValueOnce(new Error('audit unavailable'));
+    await expect(w.machine.submit(input)).rejects.toThrow('audit unavailable');
+    await expect(w.repo.getSubmissionByIdempotencyKey(w.link.id, KEY)).resolves.toBeNull();
+    expect(w.auditRepo.events).toHaveLength(0);
+    const results = await Promise.all([w.machine.submit(input), w.machine.submit(input)]);
+    expect(results[0]!.submission.id).toBe(results[1]!.submission.id);
+    await expect(w.repo.listSubmissions(w.link.id)).resolves.toHaveLength(1);
+    expect(w.auditRepo.events.filter((e) => e.payload.protectedRef === 'submission/1')).toHaveLength(1);
+    expect(w.gitea.snapshots).toHaveLength(1);
+    expect(w.gitea.pullRequests).toHaveLength(1);
+  });
+
   it('moves in_progress -> submitted, creates one snapshot, records attempt 1', async () => {
     const w = makeAssignmentWorld({ nowMs: 500 });
     const actor = principal(w.student, ['student']);
@@ -66,6 +82,24 @@ describe('submit', () => {
     expect(retry.submission.attempt).toBe(1);
     expect(w.gitea.snapshots).toHaveLength(1);
     expect(w.gitea.pullRequests).toHaveLength(1);
+  });
+
+  it('fails closed when an orphan protected snapshot belongs to a different commit', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    await w.gitea.createProtectedSnapshot({
+      repoFullName: w.link.giteaRepoFullName, attempt: 1, commitSha: COMMIT,
+    });
+    w.gitea.commits.add('def456');
+
+    await expect(w.machine.submit({
+      actor: principal(w.student, ['student']), assignmentId: w.assignment.id,
+      commitSha: 'def456', idempotencyKey: KEY,
+    })).rejects.toMatchObject({ code: 'INTEGRATION_ERROR' });
+    await expect(w.repo.listSubmissions(w.link.id)).resolves.toHaveLength(0);
+    expect(w.gitea.snapshots).toHaveLength(1);
+    expect(w.gitea.snapshots[0].commitSha).toBe(COMMIT);
+    expect(w.gitea.pullRequests).toHaveLength(0);
+    expect(w.auditRepo.events.some((e) => e.payload.reason === 'snapshot_commit_mismatch')).toBe(true);
   });
 
   it('rejects a commit that does not exist remotely', async () => {

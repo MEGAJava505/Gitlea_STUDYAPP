@@ -41,3 +41,6 @@ yarn-error.log*
 .vscode/*
 !.vscode/extensions.json
 .idea
+
+# local launcher diagnostics
+/logs/launcher/

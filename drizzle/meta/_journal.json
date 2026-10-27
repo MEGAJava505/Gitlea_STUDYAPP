@@ -22,6 +22,27 @@
       "when": 1793059200000,
       "tag": "0002_assignment_templates",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793066400000,
+      "tag": "0003_idempotency_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793076000000,
+      "tag": "0004_activation_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793083200000,
+      "tag": "0005_materials",
+      "breakpoints": true
     }
   ]
 }

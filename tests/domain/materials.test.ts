@@ -16,27 +16,33 @@ class Repo {
   async isPublishedForStudent() { return this.published; }
 }
 
+class Blobs {
+  values = new Map<string, Uint8Array>();
+  async store(bytes: Uint8Array, sha256: string) { const storedPath = `materials/${sha256}`; this.values.set(storedPath, bytes); return { storedPath }; }
+  async retrieve(storedPath: string) { return this.values.get(storedPath)!; }
+}
+
 describe('materials service', () => {
-  it('attaches metadata and stored path for a lesson owner', async () => {
+  it('uploads bytes for a lesson owner', async () => {
     const repo = new Repo();
-    const service = new MaterialsService({ repo, now: () => 100 });
-    const material = await service.attach({ actor: teacher, lessonId: 'lesson-1', filename: 'slides.pdf', contentType: 'application/pdf', storedPath: '/data/m-1', size: 12, sha256: 'a'.repeat(64) });
-    expect(material).toMatchObject({ lessonId: 'lesson-1', filename: 'slides.pdf', storedPath: '/data/m-1', size: 12 });
+    const service = new MaterialsService({ repo, blobs: new Blobs(), now: () => 100 });
+    const material = await service.uploadBlob({ actor: teacher, lessonId: 'lesson-1', filename: 'slides.pdf', contentType: 'application/pdf', bytes: new TextEncoder().encode('slides') });
+    expect(material).toMatchObject({ lessonId: 'lesson-1', filename: 'slides.pdf', size: 6 });
   });
 
   it('only lists and downloads materials published to the student group', async () => {
     const repo = new Repo();
-    const service = new MaterialsService({ repo, now: () => 100 });
-    await service.attach({ actor: teacher, lessonId: 'lesson-1', filename: 'a.txt', contentType: 'text/plain', storedPath: '/data/a', size: 1, sha256: 'a'.repeat(64) });
-    await expect(service.listForStudent(student, 'lesson-1')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const service = new MaterialsService({ repo, blobs: new Blobs(), now: () => 100 });
+    await service.uploadBlob({ actor: teacher, lessonId: 'lesson-1', filename: 'a.txt', contentType: 'text/plain', bytes: new Uint8Array([1]) });
+    await expect(service.list(student, 'lesson-1')).rejects.toMatchObject({ code: 'FORBIDDEN' });
     repo.published = true;
-    expect(await service.listForStudent(student, 'lesson-1')).toHaveLength(1);
-    expect(await service.authorizeDownload(student, 'm-1')).toMatchObject({ id: 'm-1' });
+    expect(await service.list(student, 'lesson-1')).toHaveLength(1);
+    await expect(service.openDownload({ actor: student, materialId: 'm-1' })).resolves.toMatchObject({ filename: 'a.txt' });
   });
 
   it('rejects invalid metadata and non-owner attachment', async () => {
-    const service = new MaterialsService({ repo: new Repo(), now: () => 100 });
-    await expect(service.attach({ actor: student, lessonId: 'lesson-1', filename: 'a', contentType: 'text/plain', storedPath: '/x', size: 1, sha256: 'a'.repeat(64) })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(service.attach({ actor: teacher, lessonId: 'lesson-1', filename: '../a', contentType: 'text/plain', storedPath: '/x', size: 1, sha256: 'a'.repeat(64) })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    const service = new MaterialsService({ repo: new Repo(), blobs: new Blobs(), now: () => 100 });
+    await expect(service.uploadBlob({ actor: student, lessonId: 'lesson-1', filename: 'a', contentType: 'text/plain', bytes: new Uint8Array([1]) })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(service.uploadBlob({ actor: teacher, lessonId: 'lesson-1', filename: '../a', contentType: 'text/plain', bytes: new Uint8Array([1]) })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
   });
 });

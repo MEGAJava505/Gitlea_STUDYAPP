@@ -30,6 +30,16 @@ services:
       # never exposed to the browser or written to evidence/audit payloads.
       GITEA_BASE_URL: ${GITEA_BASE_URL:-http://gitea:3000}
       GITEA_ADMIN_TOKEN: ${GITEA_ADMIN_TOKEN:-}
+      # Optional verified login/activation; missing configuration fails closed.
+      ACTIVATION_HMAC_SECRET: ${ACTIVATION_HMAC_SECRET:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_CALLBACK_URL: ${OIDC_CALLBACK_URL:-}
+      OIDC_AUTHORIZATION_ENDPOINT: ${OIDC_AUTHORIZATION_ENDPOINT:-}
+      OIDC_TOKEN_ENDPOINT: ${OIDC_TOKEN_ENDPOINT:-}
+      OIDC_JWKS_URI: ${OIDC_JWKS_URI:-}
+      OIDC_STATE_DIR: /data/studyapp/oidc-state
     volumes:
       - app-data:/data/studyapp
     depends_on:
@@ -66,24 +76,39 @@ services:
       GITEA_ADMIN_EMAIL: ${GITEA_ADMIN_EMAIL:-admin@local-github.local}
       GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD:-local-github-dev-admin-password}
       TZ: ${TZ:-UTC}
+    entrypoint:
+      - /usr/bin/entrypoint
     command:
       - /bin/sh
       - -c
       - |
         set -e
+        # Seed a writable app.ini from the read-only template on first run so
+        # Gitea can persist generated secrets (oauth2.JWT_SECRET) itself; the
+        # hardened template stays untouched in the image mount.
+        if [ ! -s /data/gitea/conf/app.ini ]; then
+          mkdir -p /data/gitea/conf
+          cp /data/gitea/conf/app.ini.template /data/gitea/conf/app.ini
+        fi
+        # Make s6's ownership check pass without recursively touching the
+        # read-only template bind mount.
+        chown git:git /data/gitea /data/gitea/conf /data/gitea/log /data/git /data/git/.ssh
+        chown git:git /data/gitea/conf/app.ini
         # Headless first-run bootstrap. `admin user create` self-initializes and
         # migrates the SQLite database. Run as git so /data/gitea/gitea.db is
         # git-owned before `gitea web` (also run as git by the s6 service) opens it.
-        su-exec git sh -c 'gitea admin user create \
-          --username "$GITEA_ADMIN_USER" \
-          --email "$GITEA_ADMIN_EMAIL" \
-          --password "$GITEA_ADMIN_PASSWORD" \
+        if [ ! -s /data/gitea/gitea.db ]; then
+          su-exec git sh -c 'gitea admin user create \
+          --username "$$GITEA_ADMIN_USER" \
+          --email "$$GITEA_ADMIN_EMAIL" \
+          --password "$$GITEA_ADMIN_PASSWORD" \
           --admin \
           --must-change-password=false'
+        fi
         exec /usr/bin/s6-svscan /etc/s6
     volumes:
       - gitea-data:/data
-      - ./docker/gitea/app.ini:/data/gitea/conf/app.ini:ro
+      - ./docker/gitea/app.ini:/data/gitea/conf/app.ini.template:ro
     ports:
       - "${GITEA_HTTP_PORT:-3000}:3000"
       - "${GITEA_SSH_PORT:-2222}:22"

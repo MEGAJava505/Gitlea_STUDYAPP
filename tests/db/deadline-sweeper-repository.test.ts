@@ -41,9 +41,9 @@ describe('DbDeadlineSweeperRepository', () => {
 
   const submit = (linkId: string, attempt: number, status: string, submittedAt: number) => {
     sqlite.prepare(`INSERT INTO submissions
-      (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(randomUUID(), linkId, attempt, 'a'.repeat(40), `submission/${attempt}`, status, submittedAt);
+      (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at, idempotency_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(randomUUID(), linkId, attempt, 'a'.repeat(40), `submission/${attempt}`, status, submittedAt, `key-${attempt}`);
   };
 
   beforeEach(async () => {
@@ -111,6 +111,40 @@ describe('DbDeadlineSweeperRepository', () => {
 
     expect(await repo.findOverdueWithoutSubmission(NOW)).toEqual([]);
     expect(await repo.findOverdueRevisionRequired(NOW)).toEqual([]);
+  });
+
+  it('rechecks a stale no-submission candidate and preserves timely work', async () => {
+    const l1 = link(user('s1'));
+    expect((await repo.findOverdueWithoutSubmission(NOW)).map((r) => r.linkId)).toEqual([l1]);
+    submit(l1, 1, 'submitted', 1699999900000);
+    sqlite.prepare("UPDATE repository_links SET status = 'submitted' WHERE id = ?").run(l1);
+    await repo.markLinkFailed(lid(l1));
+    const row = sqlite.prepare('SELECT status FROM repository_links WHERE id = ?').get(l1) as { status: string };
+    expect(row.status).toBe('submitted');
+    expect(await repo.findOverdueRevisionRequired(NOW)).toEqual([]);
+  });
+
+  it('preserves a newer submitted attempt when a revision candidate becomes stale', async () => {
+    const l1 = link(user('s1'), 'revision_required');
+    submit(l1, 1, 'revision_required', 1699999900000);
+    expect((await repo.findOverdueRevisionRequired(NOW)).map((r) => r.linkId)).toEqual([l1]);
+    // Attempt number, not timestamp, determines the latest attempt.
+    submit(l1, 2, 'submitted', 1699999800000);
+    sqlite.prepare("UPDATE repository_links SET status = 'submitted' WHERE id = ?").run(l1);
+    expect(await repo.markLinkFailed(lid(l1), NOW)).toBe(false);
+    expect(await repo.findOverdueRevisionRequired(NOW)).toEqual([]);
+    expect((sqlite.prepare('SELECT status FROM repository_links WHERE id = ?').get(l1) as {status: string}).status).toBe('submitted');
+  });
+
+  it('rechecks publication, deadline, and terminal status when marking', async () => {
+    const l1 = link(user('s1'));
+    expect(await repo.markLinkFailed(lid(l1), 1700000000000)).toBe(false);
+    sqlite.prepare('UPDATE group_assignments SET published_at = NULL WHERE id = ?').run(assignmentId);
+    expect(await repo.markLinkFailed(lid(l1), NOW)).toBe(false);
+    sqlite.prepare('UPDATE group_assignments SET published_at = 1699999000000 WHERE id = ?').run(assignmentId);
+    sqlite.prepare("UPDATE repository_links SET status = 'passed' WHERE id = ?").run(l1);
+    expect(await repo.markLinkFailed(lid(l1), NOW)).toBe(false);
+    expect((sqlite.prepare('SELECT status FROM repository_links WHERE id = ?').get(l1) as {status: string}).status).toBe('passed');
   });
 
   it('markLinkFailed flips the link status', async () => {

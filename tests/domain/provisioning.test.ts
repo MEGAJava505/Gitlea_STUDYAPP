@@ -176,6 +176,18 @@ describe('repository naming', () => {
 });
 
 describe('provisioning', () => {
+  it('isolates two assignments sharing a template and student in distinct repositories', async () => {
+    const w = world();
+    const secondId = aid('a2');
+    w.repo.assignments.set(secondId, { ...w.repo.assignments.get(ASSIGNMENT)!, id: secondId });
+    w.repo.assigned.add(`${secondId}:${STUDENT.userId}`);
+    const first = await w.service.provision(STUDENT, ASSIGNMENT);
+    const second = await w.service.provision(STUDENT, secondId);
+    expect(second.repository.giteaRepoFullName).not.toBe(first.repository.giteaRepoFullName);
+    expect(second.repository.giteaRepoId).not.toBe(first.repository.giteaRepoId);
+    expect(w.gitea.repositories.size).toBe(2);
+    expect(w.repo.links.size).toBe(2);
+  });
   it('creates one private repository from the assignment template and links it', async () => {
     const w = world();
 
@@ -185,7 +197,7 @@ describe('provisioning', () => {
     expect(result.repository).toMatchObject({
       groupAssignmentId: ASSIGNMENT,
       studentId: STUDENT.userId,
-      giteaRepoFullName: 'local-github/assignment-04-jdu-2400051',
+      giteaRepoFullName: 'local-github/assignment-04-jdu-2400051-2eb8f8691d1025517b466e82307f1a06c6bff28d659c036fadd8d7638147978e',
       giteaRepoId: 1,
       isPrivate: true,
     });
@@ -193,12 +205,12 @@ describe('provisioning', () => {
       templateOwner: 'local-github',
       templateRepo: 'assignment-04',
       owner: 'local-github',
-      name: 'assignment-04-jdu-2400051',
+      name: 'assignment-04-jdu-2400051-2eb8f8691d1025517b466e82307f1a06c6bff28d659c036fadd8d7638147978e',
       private: true,
     }]);
     expect(result.cloneUrls).toEqual({
-      https: 'http://gitea:3000/local-github/assignment-04-jdu-2400051.git',
-      ssh: 'ssh://git@gitea:2222/local-github/assignment-04-jdu-2400051.git',
+      https: 'http://gitea:3000/local-github/assignment-04-jdu-2400051-2eb8f8691d1025517b466e82307f1a06c6bff28d659c036fadd8d7638147978e.git',
+      ssh: 'ssh://git@gitea:2222/local-github/assignment-04-jdu-2400051-2eb8f8691d1025517b466e82307f1a06c6bff28d659c036fadd8d7638147978e.git',
     });
     expect([...w.repo.links.values()]).toHaveLength(1);
   });
@@ -208,8 +220,8 @@ describe('provisioning', () => {
 
     await w.service.provision(STUDENT, ASSIGNMENT);
 
-    expect(w.gitea.grants).toEqual([{ repo: 'local-github/assignment-04-jdu-2400051', login: 'jdu-2400051' }]);
-    expect(w.gitea.protections).toEqual([{ repo: 'local-github/assignment-04-jdu-2400051', branch: 'main' }]);
+    expect(w.gitea.grants).toEqual([{ repo: 'local-github/assignment-04-jdu-2400051-2eb8f8691d1025517b466e82307f1a06c6bff28d659c036fadd8d7638147978e', login: 'jdu-2400051' }]);
+    expect(w.gitea.protections).toEqual([{ repo: 'local-github/assignment-04-jdu-2400051-2eb8f8691d1025517b466e82307f1a06c6bff28d659c036fadd8d7638147978e', branch: 'main' }]);
   });
 
   it('writes an audit event without token or secret material', async () => {
@@ -226,7 +238,7 @@ describe('provisioning', () => {
       payload: {
         assignmentId: ASSIGNMENT,
         studentId: STUDENT.userId,
-        repoFullName: 'local-github/assignment-04-jdu-2400051',
+        repoFullName: 'local-github/assignment-04-jdu-2400051-2eb8f8691d1025517b466e82307f1a06c6bff28d659c036fadd8d7638147978e',
         private: true,
       },
     });
@@ -347,8 +359,8 @@ describe('reading the provisioned repository', () => {
     const result = await w.service.get(STUDENT, ASSIGNMENT);
 
     expect(result.created).toBe(false);
-    expect(result.repository.giteaRepoFullName).toBe('local-github/assignment-04-jdu-2400051');
-    expect(result.cloneUrls.https).toContain('/local-github/assignment-04-jdu-2400051.git');
+    expect(result.repository.giteaRepoFullName).toBe('local-github/assignment-04-jdu-2400051-2eb8f8691d1025517b466e82307f1a06c6bff28d659c036fadd8d7638147978e');
+    expect(result.cloneUrls.https).toContain('/local-github/assignment-04-jdu-2400051-2eb8f8691d1025517b466e82307f1a06c6bff28d659c036fadd8d7638147978e.git');
   });
 
   it('returns not found when the student has no repository yet', async () => {

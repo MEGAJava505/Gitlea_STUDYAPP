@@ -47,12 +47,20 @@ export class DbDeadlineSweeperRepository implements DeadlineSweeperRepository {
       .map(toOverdueLink);
   }
 
-  async markLinkFailed(linkId: RepositoryLinkId): Promise<void> {
-    this.db
-      .update(repositoryLinks)
-      .set({ status: 'failed' })
-      .where(eq(repositoryLinks.id, linkId))
-      .run();
+  async markLinkFailed(linkId: RepositoryLinkId, now = Date.now()): Promise<boolean> {
+    // A candidate can become stale while remote submission work finishes.
+    // Recheck eligibility in the UPDATE itself, not only in the selection pass.
+    const result = this.db.update(repositoryLinks).set({ status: 'failed' }).where(and(
+      eq(repositoryLinks.id, linkId),
+      notInArray(repositoryLinks.status, ['passed', 'failed']),
+      sql`EXISTS (SELECT 1 FROM group_assignments ga
+        WHERE ga.id = ${repositoryLinks.groupAssignmentId}
+          AND ga.published_at IS NOT NULL AND ga.deadline < ${now})`,
+      sql`COALESCE((SELECT s.status FROM submissions s
+        WHERE s.repository_link_id = ${repositoryLinks.id}
+        ORDER BY s.attempt DESC LIMIT 1), 'in_progress') IN ('in_progress', 'revision_required')`,
+    )).run();
+    return result.changes > 0;
   }
 
   /**
@@ -87,14 +95,14 @@ export class DbDeadlineSweeperRepository implements DeadlineSweeperRepository {
 }
 
 /**
- * Restricts to links whose most recent submission (by submitted_at) has status
+ * Restricts to links whose most recent submission (by attempt) has status
  * revision_required. Implemented with a SQLite correlated sub-select.
  */
 function inLatestSubmissionIsRevisionRequired() {
   return sql`${submissions.id} = (
     SELECT s2.id FROM submissions s2
     WHERE s2.repository_link_id = ${repositoryLinks.id}
-    ORDER BY s2.submitted_at DESC, s2.attempt DESC
+    ORDER BY s2.attempt DESC
     LIMIT 1
   ) AND ${submissions.status} = 'revision_required'`;
 }
