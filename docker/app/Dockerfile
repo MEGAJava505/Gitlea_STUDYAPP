@@ -9,7 +9,9 @@ FROM node:24-alpine AS deps
 WORKDIR /app
 # Use the committed lockfile. better-sqlite3 13 requires Node >=22 and ships NAPI binaries.
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci --ignore-scripts --no-audit --no-fund
+# Native NAPI binaries are bundled; do not invoke an unnecessary compiler install hook.
+RUN node -e 'const D=require("better-sqlite3"); const db=new D(":memory:"); console.log(db.prepare("select sqlite_version() version").get()); db.close();'
 
 # --- build: compile the Next.js app into standalone output ---
 FROM node:24-alpine AS build
