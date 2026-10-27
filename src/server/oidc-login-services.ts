@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { constants, lstatSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync, unlinkSync, readdirSync, realpathSync, fstatSync } from 'node:fs';
+import { constants, lstatSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync, unlinkSync, readdirSync, realpathSync, fstatSync, fsyncSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { getServices, type AppServices } from './auth-context';
 import { createGiteaOidcAdapter, findMappedGiteaUser, readOidcConfig, type OidcConfig } from './gitea-oidc-adapter';
@@ -57,7 +57,7 @@ export function createFileOidcState(directory: string, now = Date.now): OidcStat
         try { const path = join(dir, entry); if (read(path).expiresAt <= now()) unlinkSync(path); } catch { /* malformed state is never accepted */ }
       }
       const fd = openSync(filename(state), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-      try { writeFileSync(fd, JSON.stringify(record)); } finally { closeSync(fd); }
+      try { writeFileSync(fd, JSON.stringify(record)); fsyncSync(fd); } finally { closeSync(fd); }
     },
     async consume(state, browser) {
       if (!valid(state) || !valid(browser)) return null;
@@ -124,8 +124,9 @@ export function createOidcLoginServices(deps: OidcLoginDeps) {
         const { sessions, identities } = deps.services();
         const user = await identities.getUser(id);
         if (!user) return failure();
+        const returnTo = localOidcReturn(record.returnTo);
         const { cookie } = await sessions.create({ userId: user.id, login: user.login, displayName: user.displayName, roles: await identities.listRoles(user.id) }, 30 * 24 * 60 * 60 * 1000);
-        const response = new Response(null, { status: 303, headers: { ...headers, Location: localOidcReturn(record.returnTo) } });
+        const response = new Response(null, { status: 303, headers: { ...headers, Location: returnTo } });
         response.headers.append('Set-Cookie', browserCookie('', 0));
         response.headers.append('Set-Cookie', serializeCookie({ ...cookie, secure: true, httpOnly: true, sameSite: 'lax', path: '/' }));
         return response;
