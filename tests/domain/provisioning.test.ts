@@ -112,10 +112,6 @@ class FakeGiteaProvisioning implements GiteaProvisioningPort {
     this.protections.push(input);
   }
 
-  async createProtectedSubmissionRef(): Promise<{ protectedRef: string }> {
-    throw new Error('not used in provisioning tests');
-  }
-
   async createPullRequest(): Promise<{ number: number }> {
     throw new Error('not used in provisioning tests');
   }

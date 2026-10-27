@@ -163,6 +163,23 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
       }
     }
 
+    try {
+      await this.gitea.ensureReviewPullRequest({
+        repoFullName: link.giteaRepoFullName,
+        protectedRef,
+        attempt,
+      });
+    } catch {
+      await this.audit.append({
+        actorId: actor.userId,
+        eventType: 'integration.error',
+        targetType: 'assignment',
+        targetId: assignmentId,
+        payload: { commitSha: effectiveSha, attempt, reason: 'review_pull_request_failed' },
+      });
+      throw errors.integration('Failed to open the review pull request');
+    }
+
     const submission = await this.repo.insertSubmission({
       repositoryLinkId: link.id,
       attempt,

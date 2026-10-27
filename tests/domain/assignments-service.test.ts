@@ -41,13 +41,13 @@ describe('assignment publication service', () => {
     expect((await service.listForStudent(student))[0].status).toBe('upcoming');
   });
 
-  it('blocks late new submissions but permits configured resubmission', async () => {
+  it('blocks every late submission, even when resubmissions are allowed', async () => {
     const repo = new Repo();
     repo.published = [{ id: 'p1', assignmentId: 'a1', groupId: 'g1' as GroupId, deadline: 1000, publishedAt: 0 }];
     repo.assignments = [{ id: 'a1', courseId: 'course-1' as never, authorId: 'teacher' as UserId, title: 'A', description: '', allowResubmission: false, createdAt: 0 }];
     const service = new AssignmentService({ repo, now: () => 1001 });
     await expect(service.assertSubmissionAllowed('p1', student)).rejects.toMatchObject({ code: 'DEADLINE_EXPIRED' });
     repo.assignments[0] = { id: 'a1', courseId: 'course-1' as never, authorId: 'teacher' as UserId, title: 'A', description: '', allowResubmission: true, createdAt: 0 };
-    await expect(service.assertSubmissionAllowed('p1', student)).resolves.toBeUndefined();
+    await expect(service.assertSubmissionAllowed('p1', student)).rejects.toMatchObject({ code: 'DEADLINE_EXPIRED' });
   });
 });

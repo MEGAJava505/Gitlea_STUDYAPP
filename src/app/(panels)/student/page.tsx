@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { headers } from 'next/headers';
 import { createAuthContext, getServices } from '../../../server/auth-context';
 import { requirePageAccess, requireStudentPanel } from '../../../server/panels';
@@ -18,7 +19,7 @@ export default async function StudentPanelPage() {
       <ul>
         <li>Dashboard</li>
         <li>My Courses</li>
-        <li>Assignments</li>
+        <li><Link href="/student/assignments">Assignments</Link></li>
         <li>Repositories</li>
         <li>Results</li>
         <li>Notifications</li>

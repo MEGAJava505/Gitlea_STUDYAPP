@@ -29,7 +29,7 @@ export interface ProvisioningAudit {
     targetType: string;
     targetId: string;
     payload: Record<string, unknown>;
-  }): Promise<void>;
+  }): Promise<unknown>;
 }
 
 export interface CloneUrls {
