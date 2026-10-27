@@ -385,3 +385,20 @@ export type AuditEvent = typeof auditEvents.$inferSelect;
 export type NewAuditEvent = typeof auditEvents.$inferInsert;
 export type SystemSetting = typeof systemSettings.$inferSelect;
 export type NewSystemSetting = typeof systemSettings.$inferInsert;
+
+/** Activation bearer secrets are never persisted; only HMAC fingerprints. */
+export const activationTokens = sqliteTable('activation_tokens', {
+  tokenHmac: text('token_hmac').primaryKey().notNull(),
+  kind: text('kind', { enum: ['qr', 'email'] }).notNull(),
+  groupId: text('group_id').notNull().references(() => groups.id, restrict),
+  email: text('email'),
+  qrTokenHmac: text('qr_token_hmac'),
+  expiresAt: integer('expires_at').notNull(),
+  usedAt: integer('used_at'),
+  revokedAt: integer('revoked_at'),
+}, table => [index('activation_tokens_expiry_idx').on(table.expiresAt)]);
+export const activationRateLimits = sqliteTable('activation_rate_limits', {
+ keyHash: text('key_hash').primaryKey().notNull(),
+ windowStart: integer('window_start').notNull(),
+ attempts: integer('attempts').notNull(),
+});
