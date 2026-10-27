@@ -84,6 +84,15 @@ export class DbAssignmentRepository implements AssignmentRepository {
       .map(toSubmissionRecord);
   }
 
+  async getSubmissionByIdempotencyKey(linkId: RepositoryLinkId, key: string): Promise<SubmissionRecord | null> {
+    const row = this.db
+      .select()
+      .from(submissions)
+      .where(and(eq(submissions.repositoryLinkId, linkId), eq(submissions.idempotencyKey, key)))
+      .get();
+    return row ? toSubmissionRecord(row) : null;
+  }
+
   async getSubmission(id: SubmissionId): Promise<SubmissionRecord | null> {
     const row = this.db.select().from(submissions).where(eq(submissions.id, id)).get();
     return row ? toSubmissionRecord(row) : null;
@@ -102,6 +111,7 @@ export class DbAssignmentRepository implements AssignmentRepository {
           protectedRef: input.protectedRef,
           status: input.status,
           submittedAt: input.submittedAt,
+          idempotencyKey: input.idempotencyKey,
         })
         .run();
       // Keep the repository link's denormalised status in sync with the latest submission.
@@ -119,6 +129,7 @@ export class DbAssignmentRepository implements AssignmentRepository {
       protectedRef: input.protectedRef,
       status: input.status,
       submittedAt: input.submittedAt,
+      idempotencyKey: input.idempotencyKey,
     };
   }
 
@@ -182,5 +193,6 @@ function toSubmissionRecord(row: typeof submissions.$inferSelect): SubmissionRec
     protectedRef: row.protectedRef,
     status: row.status,
     submittedAt: row.submittedAt,
+    idempotencyKey: row.idempotencyKey,
   };
 }

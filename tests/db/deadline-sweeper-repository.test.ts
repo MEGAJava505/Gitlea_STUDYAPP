@@ -41,9 +41,9 @@ describe('DbDeadlineSweeperRepository', () => {
 
   const submit = (linkId: string, attempt: number, status: string, submittedAt: number) => {
     sqlite.prepare(`INSERT INTO submissions
-      (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(randomUUID(), linkId, attempt, 'a'.repeat(40), `submission/${attempt}`, status, submittedAt);
+      (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at, idempotency_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(randomUUID(), linkId, attempt, 'a'.repeat(40), `submission/${attempt}`, status, submittedAt, `key-${attempt}`);
   };
 
   beforeEach(async () => {

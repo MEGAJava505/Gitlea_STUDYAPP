@@ -166,6 +166,7 @@ export interface SubmissionRecord {
   protectedRef: string;
   status: AssignmentStatus;
   submittedAt: number;
+  idempotencyKey: string;
 }
 
 export interface NewSubmission {
@@ -175,6 +176,7 @@ export interface NewSubmission {
   protectedRef: string;
   status: AssignmentStatus;
   submittedAt: number;
+  idempotencyKey: string;
 }
 
 export interface ReviewRecord {
@@ -210,6 +212,7 @@ export type AuditEventType =
   | 'repository.provisioned'
   | 'submission.created'
   | 'submission.idempotent'
+  | 'submission.conflict'
   | 'submission.auto_failed'
   | 'review.decision'
   | 'review.denied'
@@ -261,6 +264,7 @@ export interface AssignmentRepository {
   getRepositoryLink(assignmentId: AssignmentId, studentId: UserId): Promise<RepositoryLinkRecord | null>;
   getRepositoryLinkById(id: RepositoryLinkId): Promise<RepositoryLinkRecord | null>;
   listSubmissions(linkId: RepositoryLinkId): Promise<SubmissionRecord[]>;
+  getSubmissionByIdempotencyKey(linkId: RepositoryLinkId, key: string): Promise<SubmissionRecord | null>;
   getSubmission(id: SubmissionId): Promise<SubmissionRecord | null>;
   insertSubmission(input: NewSubmission): Promise<SubmissionRecord>;
   updateSubmissionStatus(id: SubmissionId, status: AssignmentStatus): Promise<void>;

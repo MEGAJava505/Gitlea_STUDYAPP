@@ -9,6 +9,8 @@ import { migrateDatabase, openSqliteDatabase } from '../../src/db/migrate';
 import { DbAssignmentRepository } from '../../src/server/db-assignment-repository';
 import * as tables from '../../src/db/schema';
 import * as relations from '../../src/db/relations';
+import { AssignmentStateMachineImpl } from '../../src/domain/assignments/state-machine';
+import { FakeGitea, makeAuditWriter, InMemoryAuditRepository, principal, uid, aid } from '../domain/fakes';
 import type { RepositoryLinkId } from '../../src/shared/contracts';
 
 const lid = (s: string) => s as RepositoryLinkId;
@@ -71,7 +73,7 @@ describe('DbAssignmentRepository', () => {
   it.each(['revision_required', 'passed', 'failed'] as const)('synchronizes the latest review status %s to the repository link', async (status) => {
     const linkId = lid(link(user('s1')));
     const submission = await repo.insertSubmission({
-      repositoryLinkId: linkId, attempt: 1, commitSha: 'abc123',
+      repositoryLinkId: linkId, attempt: 1, idempotencyKey: 'key-1', commitSha: 'abc123',
       protectedRef: 'submission/1', status: 'submitted', submittedAt: NOW - 200000,
     });
     await repo.updateSubmissionStatus(submission.id, status);
@@ -81,9 +83,9 @@ describe('DbAssignmentRepository', () => {
   });
   it('does not let a historical review replace the latest attempt status', async () => {
     const linkId = lid(link(user('s1')));
-    const first = await repo.insertSubmission({ repositoryLinkId: linkId, attempt: 1,
+    const first = await repo.insertSubmission({ repositoryLinkId: linkId, attempt: 1, idempotencyKey: 'key-1',
       commitSha: 'abc123', protectedRef: 'submission/1', status: 'revision_required', submittedAt: NOW - 200000 });
-    await repo.insertSubmission({ repositoryLinkId: linkId, attempt: 2,
+    await repo.insertSubmission({ repositoryLinkId: linkId, attempt: 2, idempotencyKey: 'key-2',
       commitSha: 'def456', protectedRef: 'submission/2', status: 'submitted', submittedAt: NOW - 100000 });
     await repo.updateSubmissionStatus(first.id, 'failed');
     await expect(repo.getSubmission(first.id)).resolves.toMatchObject({ status: 'failed' });
@@ -92,7 +94,7 @@ describe('DbAssignmentRepository', () => {
 
   it('rolls back review status if link status synchronization fails', async () => {
     const linkId = lid(link(user('s1')));
-    const submission = await repo.insertSubmission({ repositoryLinkId: linkId, attempt: 1,
+    const submission = await repo.insertSubmission({ repositoryLinkId: linkId, attempt: 1, idempotencyKey: 'key-1',
       commitSha: 'abc123', protectedRef: 'submission/1', status: 'submitted', submittedAt: NOW - 200000 });
     sqlite.exec("CREATE TRIGGER reject_link_status BEFORE UPDATE OF status ON repository_links BEGIN SELECT RAISE(ABORT, 'status rejected'); END");
     await expect(repo.updateSubmissionStatus(submission.id, 'passed')).rejects.toThrow('status rejected');
@@ -102,8 +104,55 @@ describe('DbAssignmentRepository', () => {
   it('rolls back submission creation if link status synchronization fails', async () => {
     const linkId = lid(link(user('s1')));
     sqlite.exec("CREATE TRIGGER reject_link_status BEFORE UPDATE OF status ON repository_links BEGIN SELECT RAISE(ABORT, 'status rejected'); END");
-    await expect(repo.insertSubmission({ repositoryLinkId: linkId, attempt: 1,
+    await expect(repo.insertSubmission({ repositoryLinkId: linkId, attempt: 1, idempotencyKey: 'key-1',
       commitSha: 'abc123', protectedRef: 'submission/1', status: 'submitted', submittedAt: NOW - 200000 })).rejects.toThrow('status rejected');
     await expect(repo.listSubmissions(linkId)).resolves.toEqual([]);
   });
+  it('two independent machines/connections converge on the durable key and replay after reopening', async () => {
+    const student = user('concurrent');
+    const linkId = lid(link(student));
+    const otherSqlite = openSqliteDatabase(databaseUrl);
+    const otherRepo = new DbAssignmentRepository(drizzle(otherSqlite, { schema: { ...tables, ...relations } }));
+    const gitea = new FakeGitea();
+    gitea.commits.add('abc123');
+    let arrivals = 0;
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    gitea.hasCommit = async () => {
+      // A write on a separate connection proves no DB transaction spans Gitea.
+      otherSqlite.prepare('UPDATE repository_links SET status=status WHERE id=?').run(linkId);
+      arrivals += 1;
+      if (arrivals === 2) release();
+      await barrier;
+      return true;
+    };
+    const createSnapshot = gitea.createProtectedSnapshot.bind(gitea);
+    gitea.createProtectedSnapshot = async (input) => {
+      if (gitea.snapshots.length) throw new Error('ref already exists');
+      return createSnapshot(input);
+    };
+    const audit = makeAuditWriter(new InMemoryAuditRepository(), () => 1699999999000);
+    const permissions = { assert: async () => {}, can: async () => true };
+    const machine = (repository: DbAssignmentRepository, now = 1699999999000) => new AssignmentStateMachineImpl({
+      repo: repository, gitea, audit, permissions, now: () => now,
+    });
+    const input = { actor: principal(uid(student), ['student']), assignmentId: aid(assignmentId), commitSha: 'abc123', idempotencyKey: 'durable-key' };
+    try {
+      const results = await Promise.all([machine(repo).submit(input), machine(otherRepo).submit(input)]);
+      expect(results[0].submission.id).toBe(results[1].submission.id);
+      expect(results.map((r) => r.alreadyExisted).sort()).toEqual([false, true]);
+      expect(await repo.listSubmissions(linkId)).toHaveLength(1);
+      expect(gitea.snapshots).toHaveLength(1);
+      expect(await repo.getSubmissionByIdempotencyKey(linkId, 'durable-key')).toEqual(results[0].submission);
+      otherSqlite.close();
+      const reopened = openSqliteDatabase(databaseUrl);
+      try {
+        const restarted = machine(new DbAssignmentRepository(drizzle(reopened, { schema: { ...tables, ...relations } })), NOW);
+        expect(await restarted.submit(input)).toEqual({ submission: results[0].submission, alreadyExisted: true });
+        await expect(restarted.submit({ ...input, commitSha: 'different' })).rejects.toMatchObject({ code: 'CONFLICT', status: 409 });
+        await expect(restarted.submit({ ...input, idempotencyKey: 'new-key' })).rejects.toMatchObject({ code: 'DEADLINE_EXPIRED' });
+      } finally { reopened.close(); }
+    } finally { if (otherSqlite.open) otherSqlite.close(); }
+  });
+
 });

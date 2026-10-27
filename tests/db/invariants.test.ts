@@ -33,9 +33,9 @@ describe('SQLite data invariants', () => {
   const submit = (repositoryId: string, attempt: number, ref = `submission/${attempt}`) => {
     const id = randomUUID();
     sqlite.prepare(`INSERT INTO submissions
-      (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at)
-      VALUES (?, ?, ?, ?, ?, 'submitted', 1700000000000)`)
-      .run(id, repositoryId, attempt, 'a'.repeat(40), ref);
+      (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at, idempotency_key)
+      VALUES (?, ?, ?, ?, ?, 'submitted', 1700000000000, ?)`)
+      .run(id, repositoryId, attempt, 'a'.repeat(40), ref, `key-${attempt}`);
     return id;
   };
 
@@ -122,8 +122,8 @@ describe('SQLite data invariants', () => {
     expect(() => sqlite.prepare('DELETE FROM submissions WHERE id = ?').run(submission))
       .toThrow(/submissions cannot be deleted/);
     expect(() => sqlite.prepare(`INSERT OR REPLACE INTO submissions
-      (id, repository_link_id, attempt, commit_sha, protected_ref, submitted_at)
-      VALUES (?, ?, 1, ?, 'submission/1', 1700000000000)`)
+      (id, repository_link_id, attempt, commit_sha, protected_ref, submitted_at, idempotency_key)
+      VALUES (?, ?, 1, ?, 'submission/1', 1700000000000, 'key-1')`)
       .run(submission, repository, 'b'.repeat(40))).toThrow(/cannot be deleted/);
     expect(sqlite.prepare('SELECT commit_sha FROM submissions WHERE id = ?').get(submission))
       .toEqual({ commit_sha: 'a'.repeat(40) });

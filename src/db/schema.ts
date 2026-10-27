@@ -201,13 +201,16 @@ export const submissions = sqliteTable('submissions', {
   protectedRef: text('protected_ref').notNull(),
   status: text('status', { enum: assignmentStatuses }).notNull().default('submitted'),
   submittedAt: integer('submitted_at').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
   ...timestamps(),
 }, (table) => [
   uniqueIndex('submissions_repository_attempt_unique').on(table.repositoryLinkId, table.attempt),
   uniqueIndex('submissions_repository_ref_unique').on(table.repositoryLinkId, table.protectedRef),
+  uniqueIndex('submissions_repository_key_unique').on(table.repositoryLinkId, table.idempotencyKey),
   check('submissions_attempt_positive', sql`typeof(${table.attempt}) = 'integer' AND ${table.attempt} > 0`),
   check('submissions_commit_sha_nonempty', sql`length(trim(${table.commitSha})) > 0`),
   check('submissions_ref_nonempty', sql`length(trim(${table.protectedRef})) > 0`),
+  check('submissions_idempotency_key_nonempty', sql`length(trim(${table.idempotencyKey})) > 0`),
   check('submissions_status_check', sql`${table.status} IN ('in_progress', 'submitted', 'revision_required', 'passed', 'failed')`),
 ]);
 

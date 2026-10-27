@@ -53,6 +53,10 @@ interface StateMachineDeps {
   now: Clock;
 }
 
+// Coordination avoids duplicate remote work for machines sharing an adapter.
+// SQLite uniqueness remains the authority across adapters/processes.
+const submissionQueues = new WeakMap<AssignmentRepository, Map<string, Promise<void>>>();
+
 export class AssignmentStateMachineImpl implements AssignmentStateMachine {
   private readonly repo: AssignmentRepository;
   private readonly gitea: GiteaSubmissionPort;
@@ -69,8 +73,35 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
   }
 
   async submit(input: SubmitInput): Promise<SubmitResult> {
+    let queues = submissionQueues.get(this.repo);
+    if (!queues) { queues = new Map(); submissionQueues.set(this.repo, queues); }
+    const scope = JSON.stringify([input.assignmentId, input.actor.userId]);
+    const previous = queues.get(scope) ?? Promise.resolve();
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    queues.set(scope, pending);
+    await previous;
+    try { return await this.submitOnce(input); } finally {
+      release();
+      if (queues.get(scope) === pending) queues.delete(scope);
+    }
+  }
+
+  private async replay(input: SubmitInput, existing: SubmissionRecord): Promise<SubmitResult> {
+    const conflict = existing.commitSha !== input.commitSha;
+    await this.audit.append({
+      actorId: input.actor.userId,
+      eventType: conflict ? 'submission.conflict' : 'submission.idempotent',
+      targetType: 'submission', targetId: existing.id,
+      payload: { attempt: existing.attempt, commitSha: input.commitSha, idempotencyKey: input.idempotencyKey },
+    });
+    if (conflict) throw errors.conflict('Idempotency key was already used for a different commit');
+    return { submission: existing, alreadyExisted: true };
+  }
+
+  private async submitOnce(input: SubmitInput): Promise<SubmitResult> {
     const { actor, assignmentId, commitSha, idempotencyKey } = input;
-    if (!idempotencyKey || !commitSha) {
+    if (!idempotencyKey?.trim() || !commitSha?.trim()) {
       throw errors.invalidInput('idempotencyKey and commitSha are required');
     }
 
@@ -85,27 +116,16 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
       id: assignmentId,
     });
 
-    // Idempotency: a retry carrying the same commit returns the already-created
-    // attempt without a second snapshot, even after the deadline has passed.
-    const existing = (await this.repo.listSubmissions(link.id)).find(
-      (s) => s.commitSha === commitSha,
-    );
-    if (existing) {
-      await this.audit.append({
-        actorId: actor.userId,
-        eventType: 'submission.idempotent',
-        targetType: 'submission',
-        targetId: existing.id,
-        payload: { attempt: existing.attempt, commitSha },
-      });
-      return { submission: existing, alreadyExisted: true };
-    }
+    const existing = await this.repo.getSubmissionByIdempotencyKey(link.id, idempotencyKey);
+    if (existing) return this.replay(input, existing);
 
     const now = this.now();
     if (now > assignment.deadline) throw errors.deadlineExpired();
 
     const currentStatus = await this.currentStatus(link.id);
     if (!canTransition(currentStatus, 'submitted')) {
+      const winner = await this.repo.getSubmissionByIdempotencyKey(link.id, idempotencyKey);
+      if (winner) return this.replay(input, winner);
       throw errors.invalidState(`Cannot submit from status "${currentStatus}"`);
     }
     if (currentStatus === 'revision_required' && assignment.resubmissionPolicy !== 'allowed') {
@@ -113,6 +133,8 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     }
 
     const attempt = await this.nextAttempt(link.id);
+    const winner = await this.repo.getSubmissionByIdempotencyKey(link.id, idempotencyKey);
+    if (winner) return this.replay(input, winner);
 
     const commitExists = await this.gitea.hasCommit({
       repoFullName: link.giteaRepoFullName,
@@ -162,14 +184,20 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
         });
         protectedRef = snapshot.protectedRef;
       } catch {
-        await this.audit.append({
-          actorId: actor.userId,
-          eventType: 'integration.error',
-          targetType: 'assignment',
-          targetId: assignmentId,
-          payload: { commitSha, attempt, reason: 'snapshot_failed' },
-        });
-        throw errors.integration('Failed to create the protected submission snapshot');
+        // A concurrent creator may have won the protected-ref race.
+        const concurrent = await this.gitea.getExistingSubmission({ repoFullName: link.giteaRepoFullName, attempt });
+        if (concurrent?.commitSha === commitSha) {
+          protectedRef = concurrent.protectedRef;
+        } else {
+          await this.audit.append({
+            actorId: actor.userId,
+            eventType: 'integration.error',
+            targetType: 'assignment',
+            targetId: assignmentId,
+            payload: { commitSha, attempt, reason: 'snapshot_failed' },
+          });
+          throw errors.integration('Failed to create the protected submission snapshot');
+        }
       }
     }
 
@@ -190,14 +218,23 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
       throw errors.integration('Failed to open the review pull request');
     }
 
-    const submission = await this.repo.insertSubmission({
-      repositoryLinkId: link.id,
-      attempt,
-      commitSha: effectiveSha,
-      protectedRef,
-      status: 'submitted',
-      submittedAt: now,
-    });
+    let submission: SubmissionRecord;
+    try {
+      submission = await this.repo.insertSubmission({
+        repositoryLinkId: link.id,
+        attempt,
+        commitSha: effectiveSha,
+        protectedRef,
+        status: 'submitted',
+        submittedAt: now,
+        idempotencyKey,
+      });
+    } catch (error) {
+      // A uniqueness loser must replay the durable winner, never invent success.
+      const winner = await this.repo.getSubmissionByIdempotencyKey(link.id, idempotencyKey);
+      if (winner) return this.replay(input, winner);
+      throw error;
+    }
 
     await this.audit.append({
       actorId: actor.userId,
