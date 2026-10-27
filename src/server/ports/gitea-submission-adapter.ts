@@ -188,7 +188,7 @@ export class GiteaSubmissionAdapter implements GiteaSubmissionPort {
     }
     const rules = await this.fetch<GiteaBranchProtection[]>(`${repo}/branch_protections`);
     const rule = rules.find((r) => r.rule_name === ruleName);
-    if (!rule || rule.enable_push || rule.enable_force_push || rule.enable_bypass_allowlist) {
+    if (!rule || rule.enable_push !== false || rule.enable_force_push || rule.enable_bypass_allowlist) {
       throw new Error(`Snapshot branch ${branch} protection does not block pushes`);
     }
     return { commitSha: found.commit.id };
