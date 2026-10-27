@@ -33,6 +33,7 @@ class FakeSweeperRepo implements DeadlineSweeperRepository {
   revisionRequired: OverdueLink[] = [];
   failed: RepositoryLinkId[] = [];
   seenNow: number[] = [];
+  eligible = true;
 
   async findOverdueWithoutSubmission(now: number): Promise<OverdueLink[]> {
     this.seenNow.push(now);
@@ -42,8 +43,10 @@ class FakeSweeperRepo implements DeadlineSweeperRepository {
     this.seenNow.push(now);
     return this.revisionRequired;
   }
-  async markLinkFailed(linkId: RepositoryLinkId): Promise<void> {
+  async markLinkFailed(linkId: RepositoryLinkId): Promise<boolean> {
+    if (!this.eligible) return false;
     this.failed.push(linkId);
+    return true;
   }
 }
 
@@ -82,6 +85,16 @@ describe('deadline sweeper', () => {
     expect(repo.failed).toEqual([lid('link-2')]);
     const evt = auditRepo.events.find((e) => e.eventType === 'submission.auto_failed');
     expect(evt!.payload.reason).toBe('unresolved_revision');
+  });
+
+  it('does not count or audit stale candidates skipped at the write boundary', async () => {
+    const { repo, auditRepo, sweeper } = makeWorld(2_000);
+    repo.noSubmission = [link()];
+    repo.revisionRequired = [link({ linkId: lid('link-2') })];
+    repo.eligible = false;
+    expect(await sweeper.sweep()).toEqual({ failedNoSubmission: 0, failedUnresolvedRevision: 0 });
+    expect(auditRepo.events).toHaveLength(0);
+    expect(repo.failed).toHaveLength(0);
   });
 
   it('is a no-op when nothing is overdue', async () => {

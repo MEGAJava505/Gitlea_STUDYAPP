@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { errors, type AssignmentId, type Clock, type RepositoryLinkRecord, type SessionPrincipal, type UserId } from '../../shared/contracts';
 import type { GiteaProvisioningPort } from '../../server/ports/gitea-provisioning';
 
@@ -43,9 +44,14 @@ export interface ProvisioningResult {
   cloneUrls: CloneUrls;
 }
 
-export function repositoryName(templateRepo: string, login: string): string {
+export function repositoryName(templateRepo: string, login: string, assignmentId?: AssignmentId): string {
   const normalize = (value: string): string => value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
-  return `${normalize(templateRepo) || 'assignment'}-${normalize(login) || 'student'}`;
+  const prefix = `${normalize(templateRepo) || 'assignment'}-${normalize(login) || 'student'}`;
+  // Keep the legacy two-argument helper compatible; provisioning always scopes
+  // identity to the assignment, independently of lossy display-name normalization.
+  if (assignmentId === undefined) return prefix;
+  const identity = createHash('sha256').update(JSON.stringify([assignmentId, login])).digest('hex');
+  return `${prefix.slice(0, 35)}-${identity}`;
 }
 
 export function cloneUrls(fullName: string, bases: { cloneBaseUrl: string; sshCloneBaseUrl: string }): CloneUrls {
@@ -77,7 +83,7 @@ export class ProvisioningService {
     if (existing) return this.result(existing, false);
     if (!assignment.template) throw errors.invalidState('Assignment template is not configured');
 
-    const name = repositoryName(assignment.template.repo, actor.login);
+    const name = repositoryName(assignment.template.repo, actor.login, assignmentId);
     const fullName = `${this.deps.organization}/${name}`;
     const giteaRepo = await this.callGitea(actor, assignmentId, 'create_repository', () => this.deps.gitea.createRepositoryFromTemplate({
       templateOwner: assignment.template!.owner,

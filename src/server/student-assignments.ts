@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type { AssignmentStatus, UserId } from '../shared/contracts';
 import { courseAssignments, groupAssignments, groupMembers, repositoryLinks, submissions } from '../db/schema';
@@ -68,6 +68,9 @@ export class StudentAssignmentsQuery {
         linkId: repositoryLinks.id,
         fullName: repositoryLinks.fullName,
         linkStatus: repositoryLinks.status,
+        latestStatus: sql<AssignmentStatus | null>`(SELECT status FROM submissions
+          WHERE repository_link_id = ${repositoryLinks.id}
+          ORDER BY attempt DESC LIMIT 1)`,
       })
       .from(groupAssignments)
       .innerJoin(courseAssignments, eq(groupAssignments.courseAssignmentId, courseAssignments.id))
@@ -87,6 +90,15 @@ export class StudentAssignmentsQuery {
   }
 }
 
-function toSummary(row: { id: string; title: string; deadline: number | null; linkStatus: AssignmentStatus | null }): StudentAssignmentSummary {
-  return { id: row.id, title: row.title, deadline: row.deadline ?? 0, status: row.linkStatus ?? 'not_started' };
+function toSummary(row: {
+  id: string; title: string; deadline: number | null;
+  linkStatus: AssignmentStatus | null; latestStatus: AssignmentStatus | null;
+}): StudentAssignmentSummary {
+  // Reviews update attempts; a nonterminal link can lag behind them. Persistence
+  // must synchronize the link upstream. Never undo a terminal link (in particular
+  // the deadline sweeper's automatic failure) using an older attempt.
+  const status = row.linkStatus === 'passed' || row.linkStatus === 'failed'
+    ? row.linkStatus
+    : row.latestStatus ?? row.linkStatus ?? 'not_started';
+  return { id: row.id, title: row.title, deadline: row.deadline ?? 0, status };
 }

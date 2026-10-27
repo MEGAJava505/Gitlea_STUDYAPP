@@ -63,11 +63,12 @@ describe('StudentAssignmentsQuery', () => {
     const student = user('jdu-1');
     member(groupA, student);
     const visible = assignment(groupA, 'Visible');
-    assignment(groupA, 'Draft', false);
+    const draft = assignment(groupA, 'Draft', false);
     const otherGroup = assignment(groupB, 'Other group');
 
     expect((await query.list(student)).map((a) => a.title)).toEqual(['Visible']);
     expect(await query.get(student, otherGroup)).toBeNull();
+    expect(await query.get(student, draft)).toBeNull();
     expect((await query.get(student, visible))?.status).toBe('not_started');
   });
 
@@ -95,10 +96,28 @@ describe('StudentAssignmentsQuery', () => {
     }
 
     const mine = await query.get(student, ga);
+    expect(mine?.status).toBe('submitted');
+    expect((await query.list(student))[0].status).toBe('submitted');
     expect(mine?.repository).toEqual({ fullName: 'org/a1-jdu-3' });
     expect(mine?.attempts.map((a) => a.attempt)).toEqual([2, 1]);
     const theirs = await query.get(classmate, ga);
     expect(theirs?.repository).toBeNull();
     expect(theirs?.attempts).toEqual([]);
+    expect((await query.list(classmate))[0].status).toBe('not_started');
+
+    for (const status of ['revision_required', 'passed', 'failed']) {
+      sqlite.prepare('UPDATE submissions SET status = ? WHERE repository_link_id = ? AND attempt = 2').run(status, link);
+      expect((await query.get(student, ga))?.status).toBe(status);
+      expect((await query.list(student))[0].status).toBe(status);
+    }
+
+    // An automatic deadline failure is authoritative even if an old attempt
+    // still says revision_required; read-model repair must not reopen it.
+    sqlite.prepare("UPDATE submissions SET status = 'revision_required' WHERE repository_link_id = ? AND attempt = 2").run(link);
+    for (const terminal of ['failed', 'passed']) {
+      sqlite.prepare('UPDATE repository_links SET status = ? WHERE id = ?').run(terminal, link);
+      expect((await query.get(student, ga))?.status).toBe(terminal);
+      expect((await query.list(student))[0].status).toBe(terminal);
+    }
   });
 });

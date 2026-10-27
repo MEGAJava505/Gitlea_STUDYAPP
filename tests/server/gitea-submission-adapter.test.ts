@@ -177,6 +177,7 @@ describe('GiteaSubmissionAdapter (Gitea 1.27.3 API)', () => {
     });
 
     it.each([
+      ['push setting missing', { rule_name: 'submission/1' }],
       ['push enabled', { ...lockedRule, enable_push: true }],
       ['force-push enabled', { ...lockedRule, enable_force_push: true }],
       ['bypass allowlist', { ...lockedRule, enable_bypass_allowlist: true }],
@@ -189,6 +190,12 @@ describe('GiteaSubmissionAdapter (Gitea 1.27.3 API)', () => {
 
   describe('ensureReviewPullRequest', () => {
     const input = { repoFullName: 'org/repo', protectedRef: 'refs/heads/submission/2', attempt: 2 };
+
+    it('rejects a snapshot reference belonging to another attempt before any HTTP calls', async () => {
+      await expect(adapter.ensureReviewPullRequest({ ...input, protectedRef: 'refs/heads/submission/1' }))
+        .rejects.toThrow(/snapshot reference.*attempt/i);
+      expect(stub.calls).toHaveLength(0);
+    });
 
     it('opens a PR from the snapshot branch to the default branch', async () => {
       stub.on('GET', '', { status: 200, body: { default_branch: 'main' } });
@@ -213,6 +220,12 @@ describe('GiteaSubmissionAdapter (Gitea 1.27.3 API)', () => {
   });
 
   describe('token redaction', () => {
+    it('redacts a token echoed by a transport failure', async () => {
+      stub.fetchMock.mockRejectedValueOnce(new TypeError('fetch failed: test-token'));
+      const error = await adapter.hasCommit({ repoFullName: 'org/repo', commitSha: SHA }).catch((error: Error) => error);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe('fetch failed: [REDACTED]');
+    });
     it('redacts the admin token from propagated errors and logs', async () => {
       const logs: string[] = [];
       const logAdapter = new GiteaSubmissionAdapter({

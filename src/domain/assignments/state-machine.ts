@@ -140,6 +140,16 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     let effectiveSha = commitSha;
     let alreadyExisted = false;
     if (prior) {
+      if (prior.commitSha !== commitSha) {
+        await this.audit.append({
+          actorId: actor.userId,
+          eventType: 'integration.error',
+          targetType: 'assignment',
+          targetId: assignmentId,
+          payload: { commitSha, attempt, reason: 'snapshot_commit_mismatch' },
+        });
+        throw errors.integration('Existing protected snapshot does not match the requested commit');
+      }
       protectedRef = prior.protectedRef;
       effectiveSha = prior.commitSha;
       alreadyExisted = true;

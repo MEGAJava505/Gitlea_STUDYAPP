@@ -25,7 +25,8 @@ export interface DeadlineSweeperRepository {
   findOverdueWithoutSubmission(now: number): Promise<OverdueLink[]>;
   /** Links with a `revision_required` submission whose deadline has passed. */
   findOverdueRevisionRequired(now: number): Promise<OverdueLink[]>;
-  markLinkFailed(linkId: RepositoryLinkId): Promise<void>;
+  /** Recheck eligibility atomically; return false when the candidate is stale. */
+  markLinkFailed(linkId: RepositoryLinkId, now?: number): Promise<boolean>;
 }
 
 export type DeadlineSweeperAudit = Pick<AuditLogWriter, 'append'>;
@@ -62,18 +63,22 @@ export class DeadlineSweeper {
     const noSubmission = await this.deps.repo.findOverdueWithoutSubmission(now);
     const unresolved = await this.deps.repo.findOverdueRevisionRequired(now);
 
+    let failedNoSubmission = 0;
+    let failedUnresolvedRevision = 0;
     for (const link of noSubmission) {
-      await this.deps.repo.markLinkFailed(link.linkId);
+      if (!await this.deps.repo.markLinkFailed(link.linkId, now)) continue;
+      failedNoSubmission++;
       await this.audit('submission.auto_failed', link, 'no_submission');
     }
     for (const link of unresolved) {
-      await this.deps.repo.markLinkFailed(link.linkId);
+      if (!await this.deps.repo.markLinkFailed(link.linkId, now)) continue;
+      failedUnresolvedRevision++;
       await this.audit('submission.auto_failed', link, 'unresolved_revision');
     }
 
     return {
-      failedNoSubmission: noSubmission.length,
-      failedUnresolvedRevision: unresolved.length,
+      failedNoSubmission,
+      failedUnresolvedRevision,
     };
   }
 

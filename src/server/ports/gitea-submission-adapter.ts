@@ -64,7 +64,9 @@ export class GiteaSubmissionAdapter implements GiteaSubmissionPort {
       ...init.headers,
     };
     this.log(`Gitea ${init.method ?? 'GET'} ${this.redact(url)}`);
-    const response = await fetch(url, { ...init, headers });
+    const response = await fetch(url, { ...init, headers }).catch((error: unknown) => {
+      throw new Error(this.redact(error instanceof Error ? error.message : 'Gitea request failed'));
+    });
     if (!response.ok) {
       const text = await response.text().catch(() => 'unknown error');
       throw new GiteaHttpError(response.status, `Gitea API error (${response.status}): ${this.redact(text)}`);
@@ -146,7 +148,10 @@ export class GiteaSubmissionAdapter implements GiteaSubmissionPort {
     attempt: number;
   }): Promise<{ number: number }> {
     const repo = `/api/v1/repos/${input.repoFullName}`;
-    const head = input.protectedRef.replace(/^refs\/heads\//, '');
+    const head = GiteaSubmissionAdapter.branchName(input.attempt);
+    if (input.protectedRef !== `refs/heads/${head}`) {
+      throw new Error('Snapshot reference does not match the submission attempt');
+    }
     const { default_branch: base } = await this.fetch<{ default_branch: string }>(repo);
     const existing = await this.getOrNull<{ number: number }>(
       `${repo}/pulls/${encodeURIComponent(base)}/${head.split('/').map(encodeURIComponent).join('/')}`,

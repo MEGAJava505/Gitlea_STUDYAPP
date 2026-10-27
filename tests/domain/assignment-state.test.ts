@@ -68,6 +68,24 @@ describe('submit', () => {
     expect(w.gitea.pullRequests).toHaveLength(1);
   });
 
+  it('fails closed when an orphan protected snapshot belongs to a different commit', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    await w.gitea.createProtectedSnapshot({
+      repoFullName: w.link.giteaRepoFullName, attempt: 1, commitSha: COMMIT,
+    });
+    w.gitea.commits.add('def456');
+
+    await expect(w.machine.submit({
+      actor: principal(w.student, ['student']), assignmentId: w.assignment.id,
+      commitSha: 'def456', idempotencyKey: KEY,
+    })).rejects.toMatchObject({ code: 'INTEGRATION_ERROR' });
+    await expect(w.repo.listSubmissions(w.link.id)).resolves.toHaveLength(0);
+    expect(w.gitea.snapshots).toHaveLength(1);
+    expect(w.gitea.snapshots[0].commitSha).toBe(COMMIT);
+    expect(w.gitea.pullRequests).toHaveLength(0);
+    expect(w.auditRepo.events.some((e) => e.payload.reason === 'snapshot_commit_mismatch')).toBe(true);
+  });
+
   it('rejects a commit that does not exist remotely', async () => {
     const w = makeAssignmentWorld({ nowMs: 500 });
     const actor = principal(w.student, ['student']);
