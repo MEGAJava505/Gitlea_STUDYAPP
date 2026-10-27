@@ -300,7 +300,7 @@ export class GiteaValidationClientImpl implements GiteaValidationClient {
       'POST',
       `/repos/${input.templateOwner}/${input.templateRepo}/generate`,
       {
-        owner: 'local-github-validation',
+        owner: input.templateOwner,
         name: input.name,
         private: true,
         git_content: true,
