@@ -34,6 +34,7 @@ const lid = (s: string): RepositoryLinkId => s as RepositoryLinkId;
 const tokens: Record<'student' | 'other', string> = { student: '', other: '' };
 const TEMPLATE: AssignmentTemplate = { owner: 'local-github', repo: 'assignment-04' };
 const ASSIGNMENT = aid('assignment-1');
+const EXPECTED_REPOSITORY = 'local-github/assignment-04-jdu-2400051-b9bdab61ee87a7a6669b5a9aa6c4258ed6f4f881c3d5a245c8d9eb64f4b558ce';
 
 class FakeRepository implements ProvisioningRepository {
   assignments = new Map<AssignmentId, ProvisioningAssignment>();
@@ -128,6 +129,7 @@ function request(url: string, init: { method?: string; token?: string } = {}) {
 }
 
 const params = { params: Promise.resolve({ assignmentId: 'assignment-1' }) };
+let repository: FakeRepository;
 
 beforeEach(async () => {
   const roles = new InMemoryRoleRepository({
@@ -149,8 +151,9 @@ beforeEach(async () => {
 
   const audit = makeAuditWriter(new InMemoryAuditRepository(), now);
   const identities = new IdentityServiceImpl({ roles, audit });
+  repository = new FakeRepository();
   const provisioning = new ProvisioningService({
-    repo: new FakeRepository(),
+    repo: repository,
     gitea: new FakeGitea(),
     audit: new FakeAudit(),
     now,
@@ -197,12 +200,12 @@ describe('POST /assignments/:assignmentId/repositories', () => {
       repository: {
         groupAssignmentId: 'assignment-1',
         studentId: 'student',
-        giteaRepoFullName: 'local-github/assignment-04-jdu-2400051',
+        giteaRepoFullName: EXPECTED_REPOSITORY,
         isPrivate: true,
       },
       cloneUrls: {
-        https: 'http://gitea:3000/local-github/assignment-04-jdu-2400051.git',
-        ssh: 'ssh://git@gitea:2222/local-github/assignment-04-jdu-2400051.git',
+        https: `http://gitea:3000/${EXPECTED_REPOSITORY}.git`,
+        ssh: `ssh://git@gitea:2222/${EXPECTED_REPOSITORY}.git`,
       },
     });
 
@@ -214,6 +217,22 @@ describe('POST /assignments/:assignmentId/repositories', () => {
     const secondBody = await second.json();
     expect(secondBody.created).toBe(false);
     expect(secondBody.repository.id).toBe(firstBody.repository.id);
+  });
+
+  it('creates distinct repositories for two assignments using the same template and student', async () => {
+    const otherAssignment = aid('assignment-2');
+    repository.assignments.set(otherAssignment, { ...repository.assignments.get(ASSIGNMENT)!, id: otherAssignment });
+    repository.assigned.add(`${otherAssignment}:${uid('student')}`);
+    const first = await POST(request('/api/v1/assignments/assignment-1/repositories', { method: 'POST', token: tokens.student }), params);
+    const second = await POST(request('/api/v1/assignments/assignment-2/repositories', { method: 'POST', token: tokens.student }), { params: Promise.resolve({ assignmentId: otherAssignment }) });
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    const firstBody = await first.json();
+    const secondBody = await second.json();
+    expect(secondBody.repository.groupAssignmentId).toBe(otherAssignment);
+    expect(secondBody.repository.id).not.toBe(firstBody.repository.id);
+    expect(secondBody.repository.giteaRepoFullName).not.toBe(firstBody.repository.giteaRepoFullName);
+    expect(secondBody.cloneUrls.https).toBe(`http://gitea:3000/${secondBody.repository.giteaRepoFullName}.git`);
   });
 });
 
@@ -235,7 +254,7 @@ describe('GET /assignments/:assignmentId/repositories', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.repository.giteaRepoFullName).toBe('local-github/assignment-04-jdu-2400051');
-    expect(body.cloneUrls.https).toBe('http://gitea:3000/local-github/assignment-04-jdu-2400051.git');
+    expect(body.repository.giteaRepoFullName).toBe(EXPECTED_REPOSITORY);
+    expect(body.cloneUrls.https).toBe(`http://gitea:3000/${EXPECTED_REPOSITORY}.git`);
   });
 });

@@ -1,7 +1,7 @@
 import { relations } from 'drizzle-orm';
 import {
   activations, auditEvents, compensationWindows, courseAssignments, courseGroups, courses,
-  groupAssignments, groupMembers, groups, lessonPublications, lessons, notificationPreferences,
+  groupAssignments, groupMembers, groups, lessonPublications, lessons, materials, notificationPreferences,
   notifications, outageIncidents, repositoryLinks, reviews, studentProfiles, submissions,
   testDefinitions, testRuns, userRoles, users,
 } from './schema';
@@ -24,7 +24,11 @@ export const groupsRelations = relations(groups, ({ many }) => ({ members: many(
 export const groupMembersRelations = relations(groupMembers, ({ one }) => ({ group: one(groups, { fields: [groupMembers.groupId], references: [groups.id] }), user: one(users, { fields: [groupMembers.userId], references: [users.id] }) }));
 export const coursesRelations = relations(courses, ({ one, many }) => ({ owner: one(users, { fields: [courses.ownerId], references: [users.id] }), groups: many(courseGroups), lessons: many(lessons), assignments: many(courseAssignments) }));
 export const courseGroupsRelations = relations(courseGroups, ({ one }) => ({ course: one(courses, { fields: [courseGroups.courseId], references: [courses.id] }), group: one(groups, { fields: [courseGroups.groupId], references: [groups.id] }) }));
-export const lessonsRelations = relations(lessons, ({ one, many }) => ({ course: one(courses, { fields: [lessons.courseId], references: [courses.id] }), publications: many(lessonPublications) }));
+export const lessonsRelations = relations(lessons, ({ one, many }) => ({ course: one(courses, { fields: [lessons.courseId], references: [courses.id] }), publications: many(lessonPublications), materials: many(materials) }));
+export const materialsRelations = relations(materials, ({ one }) => ({
+  lesson: one(lessons, { fields: [materials.lessonId], references: [lessons.id] }),
+  uploader: one(users, { fields: [materials.uploadedBy], references: [users.id] }),
+}));
 export const lessonPublicationsRelations = relations(lessonPublications, ({ one }) => ({ lesson: one(lessons, { fields: [lessonPublications.lessonId], references: [lessons.id] }), group: one(groups, { fields: [lessonPublications.groupId], references: [groups.id] }) }));
 export const courseAssignmentsRelations = relations(courseAssignments, ({ one, many }) => ({ course: one(courses, { fields: [courseAssignments.courseId], references: [courses.id] }), author: one(users, { fields: [courseAssignments.authorId], references: [users.id] }), groups: many(groupAssignments) }));
 export const groupAssignmentsRelations = relations(groupAssignments, ({ one, many }) => ({ courseAssignment: one(courseAssignments, { fields: [groupAssignments.courseAssignmentId], references: [courseAssignments.id] }), group: one(groups, { fields: [groupAssignments.groupId], references: [groups.id] }), repositories: many(repositoryLinks), tests: many(testDefinitions) }));

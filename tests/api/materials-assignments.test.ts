@@ -61,13 +61,13 @@ beforeAll(async () => {
 });
 
 describe('materials and assignment API', () => {
-  it('POST /lessons/:lessonId/materials attaches metadata for an authenticated teacher', async () => {
+  it('POST /lessons/:lessonId/materials directs callers to the byte upload endpoint', async () => {
     const res = await POST_MATERIAL(request('/api/v1/lessons/lesson-1/materials', {
       body: { filename: 'slides.pdf', contentType: 'application/pdf', storedPath: '/materials/material-1', size: 42, sha256: 'a'.repeat(64) },
       token: tokens.teacher,
     }), params('lessonId', 'lesson-1'));
-    expect(res.status).toBe(201);
-    expect(await res.json()).toEqual({ material });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('INVALID_INPUT');
   });
 
   it('GET /lessons/:lessonId/materials lists materials for an authenticated student', async () => {

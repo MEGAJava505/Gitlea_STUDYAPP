@@ -1,8 +1,10 @@
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { redact } from '../domain/audit';
 import {
   type AssignmentRepository,
+  type AuditInput,
   type AssignmentView,
   type AssignmentId,
   type NewReview,
@@ -15,6 +17,7 @@ import {
   type UserId,
 } from '../shared/contracts';
 import {
+  auditEvents,
   courseAssignments,
   groupAssignments,
   repositoryLinks,
@@ -84,31 +87,64 @@ export class DbAssignmentRepository implements AssignmentRepository {
       .map(toSubmissionRecord);
   }
 
+  async getSubmissionByIdempotencyKey(linkId: RepositoryLinkId, key: string): Promise<SubmissionRecord | null> {
+    const row = this.db
+      .select()
+      .from(submissions)
+      .where(and(eq(submissions.repositoryLinkId, linkId), eq(submissions.idempotencyKey, key)))
+      .get();
+    return row ? toSubmissionRecord(row) : null;
+  }
+
   async getSubmission(id: SubmissionId): Promise<SubmissionRecord | null> {
     const row = this.db.select().from(submissions).where(eq(submissions.id, id)).get();
     return row ? toSubmissionRecord(row) : null;
   }
 
   async insertSubmission(input: NewSubmission): Promise<SubmissionRecord> {
+    return this.persistSubmission(input);
+  }
+
+  async insertSubmissionWithAudit(input: NewSubmission, audit: Omit<AuditInput, 'targetId'>): Promise<SubmissionRecord> {
+    return this.persistSubmission(input, audit);
+  }
+
+  private persistSubmission(input: NewSubmission, audit?: Omit<AuditInput, 'targetId'>): SubmissionRecord {
     const id = randomUUID() as SubmissionId;
-    this.db
-      .insert(submissions)
-      .values({
-        id,
-        repositoryLinkId: input.repositoryLinkId,
-        attempt: input.attempt,
-        commitSha: input.commitSha,
-        protectedRef: input.protectedRef,
-        status: input.status,
-        submittedAt: input.submittedAt,
-      })
-      .run();
-    // Keep the repository link's denormalised status in sync with the latest submission.
-    this.db
-      .update(repositoryLinks)
-      .set({ status: input.status })
-      .where(eq(repositoryLinks.id, input.repositoryLinkId))
-      .run();
+    this.db.transaction((tx) => {
+      tx
+        .insert(submissions)
+        .values({
+          id,
+          repositoryLinkId: input.repositoryLinkId,
+          attempt: input.attempt,
+          commitSha: input.commitSha,
+          protectedRef: input.protectedRef,
+          status: input.status,
+          submittedAt: input.submittedAt,
+          idempotencyKey: input.idempotencyKey,
+        })
+        .run();
+      // Keep the repository link's denormalised status in sync with the latest submission.
+      tx
+        .update(repositoryLinks)
+        .set({ status: input.status })
+        .where(eq(repositoryLinks.id, input.repositoryLinkId))
+        .run();
+      // Synchronous SQL on this exact transaction handle: any audit failure
+      // rolls back both writes above, including immutable submission rows.
+      if (audit) {
+        tx.insert(auditEvents).values({
+          id: randomUUID(),
+          actorId: audit.actorId,
+          eventType: audit.eventType,
+          targetType: audit.targetType,
+          targetId: id,
+          payload: redact(audit.payload) as Record<string, unknown>,
+          occurredAt: Date.now(),
+        }).run();
+      }
+    });
     return {
       id,
       repositoryLinkId: input.repositoryLinkId,
@@ -117,11 +153,23 @@ export class DbAssignmentRepository implements AssignmentRepository {
       protectedRef: input.protectedRef,
       status: input.status,
       submittedAt: input.submittedAt,
+      idempotencyKey: input.idempotencyKey,
     };
   }
 
   async updateSubmissionStatus(id: SubmissionId, status: SubmissionRecord['status']): Promise<void> {
-    this.db.update(submissions).set({ status }).where(eq(submissions.id, id)).run();
+    this.db.transaction((tx) => {
+      const submission = tx.select().from(submissions).where(eq(submissions.id, id)).get();
+      if (!submission) return;
+      tx.update(submissions).set({ status }).where(eq(submissions.id, id)).run();
+      const latest = tx.select({ id: submissions.id }).from(submissions)
+        .where(eq(submissions.repositoryLinkId, submission.repositoryLinkId))
+        .orderBy(desc(submissions.attempt)).get();
+      if (latest?.id === id) {
+        tx.update(repositoryLinks).set({ status })
+          .where(eq(repositoryLinks.id, submission.repositoryLinkId)).run();
+      }
+    });
   }
 
   async insertReview(input: NewReview): Promise<ReviewRecord> {
@@ -169,5 +217,6 @@ function toSubmissionRecord(row: typeof submissions.$inferSelect): SubmissionRec
     protectedRef: row.protectedRef,
     status: row.status,
     submittedAt: row.submittedAt,
+    idempotencyKey: row.idempotencyKey,
   };
 }

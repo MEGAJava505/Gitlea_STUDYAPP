@@ -23,7 +23,7 @@ export default async function StudentAssignmentDetailPage({ params }: { params: 
   if (!assignment) notFound();
 
   const isOverdue = Date.now() > assignment.deadline;
-  const latest = assignment.attempts[0];
+  const isTerminal = assignment.status === 'passed' || assignment.status === 'failed';
   const canSubmit = !isOverdue && assignment.repository !== null && (
     assignment.status === 'in_progress' ||
     (assignment.status === 'revision_required' && assignment.allowResubmission)
@@ -60,7 +60,7 @@ export default async function StudentAssignmentDetailPage({ params }: { params: 
       ) : (
         <section>
           <p>Your private repository has not been created yet.</p>
-          {!isOverdue && <ProvisionButton assignmentId={assignmentId} />}
+          {!isOverdue && !isTerminal && <ProvisionButton assignmentId={assignmentId} />}
         </section>
       )}
 
@@ -87,9 +87,10 @@ export default async function StudentAssignmentDetailPage({ params }: { params: 
         <SubmitForm assignmentId={assignmentId} />
       ) : (
         <p>
-          {isOverdue && 'Submission is closed: the deadline has passed.'}
-          {!isOverdue && !assignment.repository && 'Submission opens once your repository exists.'}
-          {!isOverdue && latest?.status === 'submitted' && 'Submitted. Waiting for teacher review.'}
+          {isTerminal && 'Submission is closed: this assignment is final.'}
+          {!isTerminal && isOverdue && 'Submission is closed: the deadline has passed.'}
+          {!isTerminal && !isOverdue && !assignment.repository && 'Submission opens once your repository exists.'}
+          {assignment.status === 'submitted' && 'Submitted. Waiting for teacher review.'}
           {!isOverdue && assignment.status === 'revision_required' && !assignment.allowResubmission &&
             'Revision requested, but resubmission is not allowed for this assignment.'}
         </p>

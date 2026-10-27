@@ -17,7 +17,7 @@
 	# Public health route. The Next.js route lives at /api/health, so remap the
 	# short public path to it and return the documented JSON.
 	handle /health {
-		uri strip_prefix /health /api/health
+		rewrite * /api/health
 		reverse_proxy app:3000
 	}
 

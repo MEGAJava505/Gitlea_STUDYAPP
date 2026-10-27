@@ -18,7 +18,7 @@ export default async function StudentPanelPage() {
       <h2>Student Panel</h2>
       <ul>
         <li>Dashboard</li>
-        <li>My Courses</li>
+        <li><Link href="/student/courses">My Courses</Link></li>
         <li><Link href="/student/assignments">Assignments</Link></li>
         <li>Repositories</li>
         <li>Results</li>

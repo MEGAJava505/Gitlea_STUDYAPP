@@ -2,8 +2,8 @@ import { AssignmentId, DomainError, errors, toErrorBody } from '../../../../../.
 import { createAuthContext, getServices } from '../../../../../../server/auth-context';
 
 interface SubmitBody {
-  commitSha?: string;
-  idempotencyKey?: string;
+  commitSha?: unknown;
+  idempotencyKey?: unknown;
 }
 
 export async function POST(
@@ -18,7 +18,11 @@ export async function POST(
     if (!principal) throw errors.unauthenticated();
 
     const body = (await req.json().catch(() => null)) as SubmitBody | null;
-    if (!body?.commitSha || !body.idempotencyKey) {
+    if (
+      !body || typeof body !== 'object' || Array.isArray(body) ||
+      typeof body.commitSha !== 'string' || !body.commitSha.trim() ||
+      typeof body.idempotencyKey !== 'string' || !body.idempotencyKey.trim()
+    ) {
       throw errors.invalidInput('commitSha and idempotencyKey are required');
     }
 

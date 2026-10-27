@@ -5,15 +5,16 @@
 # isolated build context, not in the developer worktree).
 
 # --- deps: install declared dependencies ---
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
-# package-lock.json is optional; npm falls back to resolving the declared
-# semver ranges if no lockfile is present.
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund || npm install --no-audit --no-fund
+# Use the committed lockfile. better-sqlite3 13 requires Node >=22 and ships NAPI binaries.
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+# Native NAPI binaries are bundled; do not invoke an unnecessary compiler install hook.
+RUN node -e 'const D=require("better-sqlite3"); const db=new D(":memory:"); console.log(db.prepare("select sqlite_version() version").get()); db.close();'
 
 # --- build: compile the Next.js app into standalone output ---
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -22,7 +23,7 @@ ENV NODE_ENV=$NODE_ENV
 RUN npm run build
 
 # --- run: minimal standalone runtime ---
-FROM node:20-alpine AS run
+FROM node:24-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
@@ -30,6 +31,7 @@ ENV PORT=3000
 # Copy the standalone server plus static assets.
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/drizzle ./drizzle
 EXPOSE 3000
 # The standalone server entrypoint.
 CMD ["node", "server.js"]
