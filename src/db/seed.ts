@@ -62,8 +62,8 @@ export async function seedDatabase(databaseUrl = process.env.DATABASE_URL ?? 'fi
         VALUES (?, ?, ?, ?, ?, 1, 'in_progress', ?, ?)`)
         .run(ids.repository, ids.groupAssignment, ids.student, 900002, 'seed-student/seed-introduction', seedTime, seedTime);
       sqlite.prepare(`INSERT OR IGNORE INTO submissions
-        (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at, created_at, updated_at)
-        VALUES (?, ?, 1, ?, 'submission/1', 'submitted', ?, ?, ?)`)
+        (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at, created_at, updated_at, idempotency_key)
+        VALUES (?, ?, 1, ?, 'submission/1', 'submitted', ?, ?, ?, 'seed:submission:1')`)
         .run(ids.submission, ids.repository, '0'.repeat(40), seedTime, seedTime, seedTime);
       sqlite.prepare(`INSERT OR IGNORE INTO reviews
         (id, submission_id, reviewer_id, decision, feedback, grade, is_active, created_at, updated_at)
