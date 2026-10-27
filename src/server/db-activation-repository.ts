@@ -12,7 +12,7 @@ export class DbActivationRepository implements ActivationRepository {
  async revokeToken(hash: string, now: number): Promise<void> { this.db.prepare('UPDATE activation_tokens SET revoked_at=? WHERE token_hmac=?').run(now,hash); }
  async findStudent(studentId: string): Promise<StudentActivationRecord | null> {
   const rows = this.db.prepare("SELECT p.student_id AS studentId,p.user_id AS userId,m.group_id AS groupId,p.expected_email AS expectedEmail,p.activation_state AS activationState FROM student_profiles p JOIN group_members m ON m.user_id=p.user_id AND m.state='active' WHERE p.student_id=?").all(studentId) as StudentActivationRecord[];
-  return rows.length === 1 ? rows[0] : null;
+  return rows.length === 1 ? rows[0]! : null;
  }
  async activate(i: CompleteActivationInput): Promise<boolean> {
   return this.db.transaction(() => {

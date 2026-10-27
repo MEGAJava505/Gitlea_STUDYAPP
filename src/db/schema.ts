@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
-import { check, index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, real, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 export const roles = ['student', 'teacher', 'admin', 'owner'] as const;
 export const assignmentStatuses = ['in_progress', 'submitted', 'revision_required', 'passed', 'failed'] as const;
@@ -392,13 +392,17 @@ export const activationTokens = sqliteTable('activation_tokens', {
   kind: text('kind', { enum: ['qr', 'email'] }).notNull(),
   groupId: text('group_id').notNull().references(() => groups.id, restrict),
   email: text('email'),
-  qrTokenHmac: text('qr_token_hmac'),
+  qrTokenHmac: text('qr_token_hmac').references((): AnySQLiteColumn => activationTokens.tokenHmac, restrict),
   expiresAt: integer('expires_at').notNull(),
   usedAt: integer('used_at'),
   revokedAt: integer('revoked_at'),
-}, table => [index('activation_tokens_expiry_idx').on(table.expiresAt)]);
+}, table => [index('activation_tokens_expiry_idx').on(table.expiresAt),
+ check('activation_tokens_hmac_length', sql`length(${table.tokenHmac}) = 64`),
+ check('activation_tokens_kind', sql`${table.kind} IN ('qr','email')`),
+ check('activation_tokens_shape', sql`(${table.kind} = 'qr' AND ${table.email} IS NULL AND ${table.qrTokenHmac} IS NULL AND ${table.usedAt} IS NULL) OR (${table.kind} = 'email' AND ${table.email} IS NOT NULL AND ${table.qrTokenHmac} IS NOT NULL)`),
+]);
 export const activationRateLimits = sqliteTable('activation_rate_limits', {
  keyHash: text('key_hash').primaryKey().notNull(),
  windowStart: integer('window_start').notNull(),
  attempts: integer('attempts').notNull(),
-});
+}, table => [check('activation_rate_attempts_positive', sql`${table.attempts} > 0`)]);

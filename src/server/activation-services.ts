@@ -79,10 +79,12 @@ export function createActivationHandlers(s:ActivationServices, principal:(req:Re
 let production: ActivationServices | undefined;
 export function getActivationHandlers() {
  if(!production) {
+  const secret=process.env.ACTIVATION_HMAC_SECRET??'';
+  if(Buffer.byteLength(secret)<32) throw unavailable('Activation signing key is not configured');
   const services=getServices();const sqlite=openSqliteDatabase();
   migrate(drizzle(sqlite),{migrationsFolder:process.env.MIGRATIONS_FOLDER??resolve(process.cwd(),'drizzle')});
   // No SMTP transport exists in this repository yet. Fail closed rather than fake delivery.
-  production=createActivationServices({sqlite,audit:services.audit,hmacSecret:process.env.ACTIVATION_HMAC_SECRET??'',baseUrl:process.env.APP_BASE_URL??''});
+  production=createActivationServices({sqlite,audit:services.audit,hmacSecret:secret,baseUrl:process.env.APP_BASE_URL??''});
  }
  return createActivationHandlers(production,req=>createAuthContext(getServices()).principal(req));
 }

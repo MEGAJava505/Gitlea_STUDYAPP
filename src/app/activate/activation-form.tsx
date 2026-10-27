@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, type FormEvent } from 'react';
+import React, { useEffect, useState, type FormEvent } from 'react';
 export default function ActivationForm(){
  const [qr,setQr]=useState('');const [token,setToken]=useState('');const [email,setEmail]=useState('');const [studentId,setStudentId]=useState('');const [message,setMessage]=useState('');const [busy,setBusy]=useState(false);
  useEffect(()=>{const p=new URLSearchParams(window.location.hash.slice(1));setQr(p.get('qr')??'');setToken(p.get('email')??'');window.history.replaceState(null,'',window.location.pathname);},[]);

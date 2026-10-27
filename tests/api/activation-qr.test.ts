@@ -97,3 +97,13 @@ it('decodes the locally rendered QR matrix to its activation URL',async()=>{
  const bitmap=new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(pixels,width,width)));
  expect(new QRCodeReader().decode(bitmap).getText()).toBe(qr.url);
 });
+it('rejects an expired shared QR before creating email tokens',async()=>{
+ const f=fixture();const qr=await invitation(f);f.advance(24*60*60*1000);
+ expect((await f.handlers.email(request({qrToken:qr.token,email:'s@jdu.uz'}))).status).toBe(409);
+});
+it('renders an actual activation form and never uses an external token image',async()=>{
+ const React=await import('react');const {renderToStaticMarkup}=await import('react-dom/server');
+ const {default:Page}=await import('../../src/app/activate/page');
+ const html=renderToStaticMarkup(React.createElement(Page));
+ expect(html).toContain('Activate student account');expect(html).toContain('Open the QR invitation');expect(html).not.toContain('<img');
+});
