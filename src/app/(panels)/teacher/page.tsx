@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { headers } from 'next/headers';
 import { createAuthContext, getServices } from '../../../server/auth-context';
 import { requirePageAccess, requireTeacherPanel } from '../../../server/panels';
@@ -18,7 +19,7 @@ export default async function TeacherPanelPage() {
       <ul>
         <li>Dashboard</li>
         <li>My Groups</li>
-        <li>Course Library</li>
+        <li><Link href="/teacher/courses">Course Library</Link></li>
         <li>Lessons</li>
         <li>Assignments</li>
         <li>Submissions / Review</li>
