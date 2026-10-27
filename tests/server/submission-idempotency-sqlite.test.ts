@@ -222,7 +222,10 @@ describe('submission semantic idempotency with file-backed SQLite', () => {
   it('retries a failed PR call after reopening without duplicating the orphan snapshot', async () => {
     gitea.failPullRequest = true;
     await expect(services().machine.submit(input())).rejects.toMatchObject({ code: 'INTEGRATION_ERROR' });
+    expect(await services().repo.listSubmissions(linkId)).toEqual([]);
+    expect(sqlite.prepare('SELECT status FROM repository_links WHERE id=?').get(linkId)).toEqual({ status: 'in_progress' });
     expect(gitea.snapshots).toHaveLength(1);
+    expect(gitea.pullRequests).toHaveLength(0);
     expect(events().map(e => e.eventType)).toEqual(['integration.error']);
     expect(JSON.parse(events()[0].payload)).toMatchObject({ reason: 'review_pull_request_failed' });
     sqlite.close();
@@ -237,6 +240,4 @@ describe('submission semantic idempotency with file-backed SQLite', () => {
     expect(await restarted.machine.submit(input())).toEqual({ submission: retry.submission, alreadyExisted: true });
   });
 
-  it.todo('rolls back submission AND link status when audit_events INSERT fails: insertSubmission commits before awaited audit.append; no shared atomic commit seam yet');
-  it.todo('retains a committed submission when PR creation fails: submit calls ensureReviewPullRequest BEFORE insertSubmission, contrary to approved post-commit PR boundary');
 });
