@@ -76,11 +76,24 @@ services:
       GITEA_ADMIN_EMAIL: ${GITEA_ADMIN_EMAIL:-admin@local-github.local}
       GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD:-local-github-dev-admin-password}
       TZ: ${TZ:-UTC}
+    entrypoint:
+      - /usr/bin/entrypoint
     command:
       - /bin/sh
       - -c
       - |
         set -e
+        # Seed a writable app.ini from the read-only template on first run so
+        # Gitea can persist generated secrets (oauth2.JWT_SECRET) itself; the
+        # hardened template stays untouched in the image mount.
+        if [ ! -s /data/gitea/conf/app.ini ]; then
+          mkdir -p /data/gitea/conf
+          cp /data/gitea/conf/app.ini.template /data/gitea/conf/app.ini
+        fi
+        # Make s6's ownership check pass without recursively touching the
+        # read-only template bind mount.
+        chown git:git /data/gitea /data/gitea/conf /data/gitea/log /data/git /data/git/.ssh
+        chown git:git /data/gitea/conf/app.ini
         # Headless first-run bootstrap. `admin user create` self-initializes and
         # migrates the SQLite database. Run as git so /data/gitea/gitea.db is
         # git-owned before `gitea web` (also run as git by the s6 service) opens it.
@@ -95,7 +108,7 @@ services:
         exec /usr/bin/s6-svscan /etc/s6
     volumes:
       - gitea-data:/data
-      - ./docker/gitea/app.ini:/data/gitea/conf/app.ini:ro
+      - ./docker/gitea/app.ini:/data/gitea/conf/app.ini.template:ro
     ports:
       - "${GITEA_HTTP_PORT:-3000}:3000"
       - "${GITEA_SSH_PORT:-2222}:22"
