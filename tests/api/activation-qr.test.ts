@@ -81,8 +81,10 @@ describe('persistent activation HTTP flow',()=>{
  });
 });
 it('decodes the locally rendered QR matrix to its activation URL',async()=>{
- const { BinaryBitmap, HybridBinarizer, RGBLuminanceSource, QRCodeReader }=await import('@zxing/library');
- const f=fixture();const qr=await invitation(f);
+ const { BinaryBitmap, HybridBinarizer, RGBLuminanceSource, QRCodeReader, DecodeHintType }=await import('@zxing/library');
+ const f=fixture();
+ for(let sample=0;sample<8;sample++) {
+ const qr=await invitation(f);
  // Read qrcode's SVG path into an independent decoder (no encoder call in this test).
  const size=Number(qr.svg.match(/viewBox="0 0 ([0-9]+) /)![1]);
  const scale=8,width=size*scale;const pixels=new Uint8ClampedArray(width*width);pixels.fill(255);
@@ -95,8 +97,10 @@ it('decodes the locally rendered QR matrix to its activation URL',async()=>{
   else {const end=part[1]==='h'?x+numbers[0]:numbers[0];for(let py=Math.floor(y)*scale;py<(Math.floor(y)+1)*scale;py++)for(let px=x*scale;px<end*scale;px++)pixels[py*width+px]=0;x=end;}
  }
  const bitmap=new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(pixels,width,width)));
- expect(new QRCodeReader().decode(bitmap).getText()).toBe(qr.url);
-});
+ // This exact, unrotated synthetic raster needs no camera perspective detector.
+ expect(new QRCodeReader().decode(bitmap,new Map([[DecodeHintType.PURE_BARCODE,true]])).getText()).toBe(qr.url);
+ }
+},20000);
 it('rejects an expired shared QR before creating email tokens',async()=>{
  const f=fixture();const qr=await invitation(f);f.advance(24*60*60*1000);
  expect((await f.handlers.email(request({qrToken:qr.token,email:'s@jdu.uz'}))).status).toBe(409);

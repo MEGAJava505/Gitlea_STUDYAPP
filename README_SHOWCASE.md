@@ -45,12 +45,12 @@ At 2026-10-27 04:09UTC, `https://dowci-165-140-166-143.free.pinggy.net` was exte
 
 - Baseline recovery unit suite:358 passed,6 optional-live skipped,0 TODO. Separate pinned-Gitea snapshot live suite6/6; Phase0positive20/negative7. Fresh database migration/seed twice and native production typecheck/lint/build passed.
 - Linux launcher actually executed six safe mocked Docker/health/browser cases: CSPRNG env creation, preservation, bad-env refusal, engine failure, production-mode refusal, known-default-password refusal; paths with spaces and health-before-browser checked. `node scripts/launcher/check-linux.mjs "$PWD"` reproduces these non-destructive checks. Bash syntax and real quiet Compose config validation passed.
-- A real isolated loopback-only Linux Docker launch/restart check is ongoing. An initial compiler-hook failure was fixed by using the bundled SQLite NAPI binary; the Docker image now uses Node24, lockfile install, explicit migrations and an env/secret-excluding build context. No complete real Docker-stack PASS is claimed until its receipt is recorded.
+- Real isolated loopback-only Linux Docker startup compiled and generated all10 pages, but the bounded harness timed out during build tracing. Its isolated project was stopped successfully with volumes preserved. The initial compiler-hook failure was fixed using the bundled SQLite NAPI binary. No complete Docker-stack PASS is claimed.
 - Windows/macOS execution and physical-phone/browser scan/activation are **unverified**.
 
 ## Current gaps — do not mistake primitives for completed flows
 
-- QR/activation and verified OIDC routes are being implemented in disjoint executor lanes. The current published snapshot may contain the local QR/JOSE dependencies before the actual flow lands. No QR or full-auth readiness is claimed from those dependencies or token-domain tests. Group QR markers are shared/reusable; individual emailed activation links must be one-time, expiring and replay-protected.
+- Real local QR rendering, `/activate` forms, persisted shared QR markers, one-time email-token redemption, and verified OIDC start/callback routes are now integrated. See `docs/SHOWCASE_AUTH.md`. Production SMTP transport is still absent (email returns503); operator OIDC configuration, real browser login, phone scan and live email remain unverified. No full-auth/phone-readiness claim follows from unit tests.
 - Actual upload/storage/download of ZIP/PDF/markdown materials remains incomplete.
 - Full inline-review/grading UI, isolated Python worker, notifications and outage compensation remain open.
 - Pinned Next15.1.3 emitted CVE-2025-66478 warning. A maintained patched upgrade and regression are required before production launch; do not expose this stack publicly.
