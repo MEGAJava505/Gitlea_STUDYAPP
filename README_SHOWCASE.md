@@ -43,7 +43,7 @@ At 2026-10-27 04:09UTC, `https://dowci-165-140-166-143.free.pinggy.net` was exte
 
 ## Verified versus pending
 
-- Baseline recovery unit suite:358 passed,6 optional-live skipped,0 TODO. Separate pinned-Gitea snapshot live suite6/6; Phase0positive20/negative7. Fresh database migration/seed twice and native production typecheck/lint/build passed.
+- Current combined QR/OIDC/recovery unit suite:407 passed,6 optional-live skipped,0 TODO; production build13/13 static pages passed. Baseline recovery unit suite:358 passed,6 optional-live skipped,0 TODO. Separate pinned-Gitea snapshot live suite6/6; Phase0positive20/negative7. Fresh database migration/seed twice and native production typecheck/lint/build passed.
 - Linux launcher actually executed six safe mocked Docker/health/browser cases: CSPRNG env creation, preservation, bad-env refusal, engine failure, production-mode refusal, known-default-password refusal; paths with spaces and health-before-browser checked. `node scripts/launcher/check-linux.mjs "$PWD"` reproduces these non-destructive checks. Bash syntax and real quiet Compose config validation passed.
 - Real isolated loopback-only Linux Docker startup compiled and generated all10 pages, but the bounded harness timed out during build tracing. Its isolated project was stopped successfully with volumes preserved. The initial compiler-hook failure was fixed using the bundled SQLite NAPI binary. No complete Docker-stack PASS is claimed.
 - Windows/macOS execution and physical-phone/browser scan/activation are **unverified**.

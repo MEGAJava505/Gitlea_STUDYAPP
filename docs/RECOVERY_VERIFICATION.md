@@ -1,5 +1,19 @@
 # Autonomous recovery verification — 2026-10-26
 
+## Showcase QR/OIDC integration — 2026-10-27 05:03 UTC
+
+Integrated actual QR lane `abeefbc/e21c752/8ddfee7` and OIDC lane `fd32360/a5e9969/3fbb15b` on the recovery branch, safely descending from published showcase `8022209`. No main merge.
+
+- Controller independently ran typecheck and lint: PASS. Full combined suite: **407 passed, 6 optional-live skipped, 0 TODO** (45 passed files,1 skipped). `npm run build`: **exit0**, production compilation and13/13 static pages.
+- Fresh isolated SQLite: migration, seed, migration again, seed again: exit0. Existing legacy activation rows preserved by migration regression. Quiet Docker Compose configuration and `git diff --check`: PASS.
+- Generated local SVG raster decoded independently via ZXing. Initial random sample failed the camera perspective detector; the ideal synthetic raster now uses PURE_BARCODE mode. Eight independent issued QR samples then decoded correctly. This tests image payload, NOT physical-phone camera acceptance.
+- Linux launcher six mocked prerequisite/safety/health cases: PASS. The opener is deliberately detached; its harness now waits at most1second for the trace before deleting its own temporary fixture, fixing an observed assertion/cleanup race. No production launcher behavior weakened.
+- Real isolated Docker startup: dependency install/compilation/static generation succeeded, but the bounded harness timed out during build tracing; isolated Compose project stopped0, volumes preserved. **Not full-stack PASS.** Native production build separately completed successfully above.
+- Actual activation HTTP issuance→injected mail→redemption and replay denial checked by tests; production SMTP transport remains absent and returns503. OIDC cryptographic/state tests do not establish live Gitea-provider compatibility. Public HTTPS/operator secrets, physical phone, browser login and live SMTP are unverified. Next15.1.3 security launch gate remains OPEN.
+- Fresh native production HTTP smoke on a temporary loopback ephemeral port: `/activate`200; missing-config OIDC start/callback503; activation email503; anonymous student assignments401. Isolated server terminated and fixture preserved; unrelated services untouched.
+- Formal phase map unchanged:0technicalvalidation verified;1–5partial;6–7pending. Full plan stays OPEN; no whole-phase acceptance.
+
+
 ## Scope and ownership
 
 Controller: session `e57c9fd0-80c6-4e5e-8e0c-64a5604837ec`; parent owns continuation. Source of truth remains `PLAN_GITEA.md`. This is execution evidence, not a replacement design or acceptance declaration.
