@@ -198,6 +198,10 @@ export class InMemoryAssignmentRepository implements AssignmentRepository, Acces
     return [...(this.submissionsByLink.get(linkId) ?? [])];
   }
 
+  async getSubmissionByIdempotencyKey(linkId: RepositoryLinkId, key: string): Promise<SubmissionRecord | null> {
+    return (await this.listSubmissions(linkId)).find((s) => s.idempotencyKey === key) ?? null;
+  }
+
   async getSubmission(id: SubmissionId): Promise<SubmissionRecord | null> {
     return this.submissions.get(id) ?? null;
   }

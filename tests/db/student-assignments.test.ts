@@ -90,9 +90,9 @@ describe('StudentAssignmentsQuery', () => {
     sqlite.prepare(`INSERT INTO repository_links (id, group_assignment_id, student_id, gitea_repository_id, full_name, status)
       VALUES (?, ?, ?, ?, ?, 'revision_required')`).run(link, ga, student, 900, 'org/a1-jdu-3');
     for (const attempt of [1, 2]) {
-      sqlite.prepare(`INSERT INTO submissions (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(randomUUID(), link, attempt, String(attempt).repeat(40),
-        `refs/heads/submission/${attempt}`, attempt === 1 ? 'revision_required' : 'submitted', 1_700_000_000_000 + attempt);
+      sqlite.prepare(`INSERT INTO submissions (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at, idempotency_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(randomUUID(), link, attempt, String(attempt).repeat(40),
+        `refs/heads/submission/${attempt}`, attempt === 1 ? 'revision_required' : 'submitted', 1_700_000_000_000 + attempt, `key-${attempt}`);
     }
 
     const mine = await query.get(student, ga);
