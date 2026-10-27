@@ -65,6 +65,17 @@ Collect all three workers, inspect disjoint diffs and red/green evidence, integr
 - B: actual native `gpt-6.1-sol`, `5f990e1`/`6de8549`: nonempty STRING/object validation, forwarding original key/SHA unchanged, stable401/403/409/internal-error JSON. Reported RED12failed/12passed→GREEN32passed, typecheck/lint/full315passed6optional-skipped on its branch. Merged as **`0cadc35`**; controller independently verified typecheck+48focused tests (32newAPI+15existingAPI+1harness).
 - C: actual native `gpt-6-luna`, `6e2a63f`, independent6 public-contract tests baseline4failed/2passed. Caveat: initial suite used in-memory fixture, not durable SQLite. Controller continued same QA line with concrete realSQLite close/reopen/two-instance concurrency tests; red is pending fixwork, not completion.
 
+### Recovered controller integration — 2026-10-27 02:28 UTC
+
+- Fresh technical controller recovered actual core commit `1d04834` and independent QA `6e2a63f` before redoing work. Merged them as `9039be7` and `c9b84f7`, retaining strict fail-closed push protection (adapter is byte-identical to `f5694b4`).
+- Core includes in-place populated SQLite migration/backfill and immutable-key guards, canonical durable-key lookup, stable409 conflicts, preserved deadline/terminal/revision policies, orphan snapshot reconciliation and independent-connection concurrency coverage.
+- Independent integrated seed regression reproduced **1 failed/16 passed**: insert omitted required semantic key. Minimal stable seed key `seed:submission:1` fixed in `f5dd21a`; focused rerun **17/17 PASS**. No constraints weakened.
+- Independent integrated typecheck PASS; lint PASS; full suite **335 PASS /6 optional live skipped**,35 passed files. Production build was still running when this subsection was written; no build PASS asserted here.
+- Fresh temporary SQLite migration PASS and seed twice PASS. Populated legacy upgrade/repeated migrate test PASS, preserves reviews/test-run references and immutable triggers.
+- Separate CURRENT-source pinned Gitea1.27.3 protected snapshot live suite **6/6 PASS**. Fresh Phase0 positive **20/20 PASS**, negative **7/7 PASS**. Each used unique namespaces, disposable administrators and in-memory credentials; organization cleanup204 and administrator/token purge exit0 for both runs. No live configuration/restart/volume changes.
+- Earlier QA continuation stopped for a missing dependency seam; controller synced integrated interfaces into the same QA worktree and launched real SQLite public-service QA. This is additional independent evidence, not a missing production dependency anymore.
+- Sole approved design orchestrator is actual `claude-opus-5-5` via ClaudeCode, doc-only `tasks/PHASE_ACCEPTANCE_RECOVERY.md`; Sol remains technical controller only. Next allocation must retain three useful disjoint executor lanes and full-plan acceptance ownership.
+
 ### Still-open acceptance
 
 No full Phase4/MVP PASS. Durable semantic idempotency, upgrades of existing submissions, race/audit atomicity and full authenticated education flow remain gates; required PR/snapshot failure must not report successful submission. Normal revision/resubmission/terminal state policies cannot be bypassed by new keys. Earlier identity/course/material UI end-to-end gates remain; Phase5partial,6–7pending. Current active work/identities and watchdog nonduplication state are in workspace `state/pipeline.md`.
