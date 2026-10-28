@@ -34,4 +34,15 @@ export interface GiteaSubmissionPort {
     repoFullName: string;
     attempt: number;
   }): Promise<{ protectedRef: string; commitSha: string } | null>;
+
+  /**
+   * Adds a general comment to the review Pull Request. `inline` adds a
+   * line comment at the given path/line when both are provided.
+   */
+  addComment(input: {
+    repoFullName: string;
+    pullRequestNumber: number;
+    body: string;
+    inline?: { path: string; line: number };
+  }): Promise<void>;
 }

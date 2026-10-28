@@ -471,4 +471,77 @@ describe('review transitions', () => {
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
+
+  it('pass records a numeric grade 1–5 and emits review.graded audit', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    const student = principal(w.student, ['student']);
+    const teacher = principal(w.teacher, ['teacher']);
+    const sub = await w.machine.submit({
+      actor: student,
+      assignmentId: w.assignment.id,
+      commitSha: COMMIT,
+      idempotencyKey: 'key-1',
+    });
+
+    const result = await w.machine.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId: sub.submission.id,
+      decision: 'pass',
+      feedback: 'excellent',
+      grade: 5,
+    });
+    expect(result.status).toBe('passed');
+    expect(result.review?.grade).toBe(5);
+    const graded = w.auditRepo.events.find((e) => e.eventType === 'review.graded');
+    expect(graded).toBeTruthy();
+    expect(graded?.payload).toMatchObject({ grade: 5, decision: 'pass' });
+  });
+
+  it('grade outside 1–5 is rejected', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    const student = principal(w.student, ['student']);
+    const teacher = principal(w.teacher, ['teacher']);
+    const sub = await w.machine.submit({
+      actor: student,
+      assignmentId: w.assignment.id,
+      commitSha: COMMIT,
+      idempotencyKey: 'key-1',
+    });
+    await expect(
+      w.machine.pass({
+        actor: teacher,
+        assignmentId: w.assignment.id,
+        submissionId: sub.submission.id,
+        decision: 'pass',
+        feedback: 'x',
+        grade: 6 as never,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
+
+  it('review decision posts a comment on the review PR via Gitea', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    const student = principal(w.student, ['student']);
+    const teacher = principal(w.teacher, ['teacher']);
+    const sub = await w.machine.submit({
+      actor: student,
+      assignmentId: w.assignment.id,
+      commitSha: COMMIT,
+      idempotencyKey: 'key-1',
+    });
+    await w.machine.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId: sub.submission.id,
+      decision: 'pass',
+      feedback: 'nice',
+      grade: 4,
+    });
+    // ensureReviewPullRequest was called during submit; addComment should have been called by pass
+    expect(w.gitea.comments.length).toBeGreaterThan(0);
+    const comment = w.gitea.comments[0];
+    expect(comment.body).toContain('Passed');
+    expect(comment.body).toContain('Grade: 4/5');
+  });
 });

@@ -6,8 +6,10 @@ import {
   AssignmentView,
   AuditLogWriter,
   Clock,
+  NumericGrade,
   PermissionChecker,
   RepositoryLinkId,
+  RepositoryLinkRecord,
   RequestRevisionInput,
   ReviewInput,
   ReviewResult,
@@ -246,7 +248,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
 
   async requestRevision(input: RequestRevisionInput): Promise<ReviewResult> {
     const { actor, submissionId, feedback } = input;
-    const { submission, assignment } = await this.resolveReviewTarget(input);
+    const { submission, assignment, link } = await this.resolveReviewTarget(input);
     await this.permissions.assert(actor, 'assignment:review', {
       type: 'submission',
       id: submissionId,
@@ -260,6 +262,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     }
 
     await this.repo.updateSubmissionStatus(submissionId, 'revision_required');
+    await this.postReviewComment(link, submission, `Requested revision: ${feedback || 'Please fix and resubmit.'}`);
     await this.audit.append({
       actorId: actor.userId,
       eventType: 'review.decision',
@@ -284,7 +287,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     targetStatus: 'passed' | 'failed',
   ): Promise<ReviewResult> {
     const { actor, submissionId, feedback } = input;
-    const { submission } = await this.resolveReviewTarget(input);
+    const { submission, link } = await this.resolveReviewTarget(input);
     await this.permissions.assert(actor, 'assignment:review', {
       type: 'submission',
       id: submissionId,
@@ -294,27 +297,52 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
       throw errors.invalidState(`Cannot mark as ${targetStatus} from status "${submission.status}"`);
     }
 
+    const grade = this.normalizeGrade(input.grade, decision);
     await this.repo.updateSubmissionStatus(submissionId, targetStatus);
     const review = await this.repo.insertReview({
       submissionId,
       reviewerId: actor.userId,
       decision,
       feedback,
+      grade,
     });
+    await this.postReviewComment(
+      link,
+      submission,
+      `${decision === 'pass' ? 'Passed' : 'Failed'}: ${feedback || 'No additional feedback.'}${grade !== null ? ` Grade: ${grade}/5.` : ''}`,
+    );
     await this.audit.append({
       actorId: actor.userId,
       eventType: 'review.decision',
       targetType: 'submission',
       targetId: submissionId,
-      payload: { decision, status: targetStatus, feedback },
+      payload: { decision, status: targetStatus, feedback, grade },
     });
+    if (grade !== null) {
+      await this.audit.append({
+        actorId: actor.userId,
+        eventType: 'review.graded',
+        targetType: 'submission',
+        targetId: submissionId,
+        payload: { grade, decision },
+      });
+    }
     return { review, status: targetStatus };
+  }
+
+  /** Validates a numeric grade against the 1–5 scale; null when absent/disabled. */
+  private normalizeGrade(grade: unknown, _decision: 'pass' | 'fail'): NumericGrade | null {
+    if (grade === null || grade === undefined) return null;
+    if (typeof grade !== 'number' || !Number.isInteger(grade) || grade < 1 || grade > 5) {
+      throw errors.invalidInput('grade must be an integer between 1 and 5');
+    }
+    return grade as NumericGrade;
   }
 
   private async resolveReviewTarget(input: {
     assignmentId: AssignmentId;
     submissionId: SubmissionId;
-  }): Promise<{ submission: SubmissionRecord; assignment: AssignmentView }> {
+  }): Promise<{ submission: SubmissionRecord; assignment: AssignmentView; link: RepositoryLinkRecord }> {
     const submission = await this.repo.getSubmission(input.submissionId);
     if (!submission) throw errors.notFound('submission');
 
@@ -327,7 +355,35 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     if (assignment.id !== input.assignmentId) {
       throw errors.invalidInput('submission does not belong to this assignment');
     }
-    return { submission, assignment };
+    return { submission, assignment, link };
+  }
+
+  /** Posts the review decision as a general comment on the submission's PR. */
+  private async postReviewComment(
+    link: RepositoryLinkRecord,
+    submission: SubmissionRecord,
+    body: string,
+  ): Promise<void> {
+    try {
+      const pr = await this.gitea.ensureReviewPullRequest({
+        repoFullName: link.giteaRepoFullName,
+        protectedRef: submission.protectedRef,
+        attempt: submission.attempt,
+      });
+      await this.gitea.addComment({
+        repoFullName: link.giteaRepoFullName,
+        pullRequestNumber: pr.number,
+        body,
+      });
+    } catch {
+      await this.audit.append({
+        actorId: null,
+        eventType: 'integration.error',
+        targetType: 'submission',
+        targetId: submission.id,
+        payload: { reason: 'review_comment_failed' },
+      });
+    }
   }
 
   private async currentStatus(linkId: RepositoryLinkId): Promise<AssignmentStatus> {

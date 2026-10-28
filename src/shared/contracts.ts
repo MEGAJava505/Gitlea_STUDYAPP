@@ -49,6 +49,9 @@ export type SubmissionDecision = 'pass' | 'fail';
 
 export type ResubmissionPolicy = 'allowed' | 'forbidden';
 
+/** Optional numeric grade on a 1–5 scale (PLAN_GITEA.md §11.2). */
+export type NumericGrade = 1 | 2 | 3 | 4 | 5;
+
 /* ------------------------------------------------------------------ *
  * Clock
  * ------------------------------------------------------------------ */
@@ -185,6 +188,8 @@ export interface ReviewRecord {
   reviewerId: UserId;
   decision: SubmissionDecision;
   feedback: string;
+  /** Numeric grade 1–5; null when numeric grading is disabled or not set. */
+  grade: NumericGrade | null;
   createdAt: number;
 }
 
@@ -193,6 +198,7 @@ export interface NewReview {
   reviewerId: UserId;
   decision: SubmissionDecision;
   feedback: string;
+  grade: NumericGrade | null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -215,6 +221,7 @@ export type AuditEventType =
   | 'submission.conflict'
   | 'submission.auto_failed'
   | 'review.decision'
+  | 'review.graded'
   | 'review.denied'
   | 'permission.denied'
   | 'integration.error';
@@ -330,6 +337,8 @@ export interface ReviewInput {
   submissionId: SubmissionId;
   decision: SubmissionDecision;
   feedback: string;
+  /** Numeric grade 1–5; only honored for a terminal pass/fail when enabled. */
+  grade?: NumericGrade | null;
 }
 
 export interface ReviewResult {
