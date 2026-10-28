@@ -52,6 +52,14 @@ export type ResubmissionPolicy = 'allowed' | 'forbidden';
 /** Optional numeric grade on a 1–5 scale (PLAN_GITEA.md §11.2). */
 export type NumericGrade = 1 | 2 | 3 | 4 | 5;
 
+/** System setting row for toggleable features (e.g. numeric grading). */
+export interface SystemSetting {
+  id: string;
+  key: string;
+  value: unknown;
+  updatedAt: number;
+}
+
 /* ------------------------------------------------------------------ *
  * Clock
  * ------------------------------------------------------------------ */
