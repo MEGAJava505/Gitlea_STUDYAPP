@@ -545,3 +545,148 @@ describe('review transitions', () => {
     expect(comment.body).toContain('Grade: 4/5');
   });
 });
+
+describe('inline review comments', () => {
+  async function submittedWorld() {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    const sub = await w.machine.submit({
+      actor: principal(w.student, ['student']),
+      assignmentId: w.assignment.id,
+      commitSha: COMMIT,
+      idempotencyKey: 'key-1',
+    });
+    return { w, teacher: principal(w.teacher, ['teacher']), submissionId: sub.submission.id };
+  }
+
+  const INLINE = { path: 'src/main.ts', line: 12, body: 'use a guard clause here' };
+
+  it('pass forwards the inline comment as a second, inline addComment call', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    const result = await w.machine.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      decision: 'pass',
+      feedback: 'nice',
+      inlineComment: INLINE,
+    });
+
+    expect(result.status).toBe('passed');
+    const inlineCalls = w.gitea.comments.filter((c) => c.inline);
+    expect(inlineCalls).toHaveLength(1);
+    expect(inlineCalls[0].body).toBe(INLINE.body);
+    expect(inlineCalls[0].inline).toEqual({ path: INLINE.path, line: INLINE.line });
+    const general = w.gitea.comments.find((c) => !c.inline);
+    expect(general?.body).toContain('Passed');
+  });
+
+  it('fail forwards the inline comment', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    const result = await w.machine.fail({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      decision: 'fail',
+      feedback: 'not there yet',
+      inlineComment: INLINE,
+    });
+
+    expect(result.status).toBe('failed');
+    const inlineCalls = w.gitea.comments.filter((c) => c.inline);
+    expect(inlineCalls).toHaveLength(1);
+    expect(inlineCalls[0].body).toBe(INLINE.body);
+    expect(inlineCalls[0].inline).toEqual({ path: INLINE.path, line: INLINE.line });
+  });
+
+  it('request_revision forwards the inline comment', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    const result = await w.machine.requestRevision({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      feedback: 'fix this',
+      inlineComment: INLINE,
+    });
+
+    expect(result.status).toBe('revision_required');
+    const inlineCalls = w.gitea.comments.filter((c) => c.inline);
+    expect(inlineCalls).toHaveLength(1);
+    expect(inlineCalls[0].body).toBe(INLINE.body);
+    expect(inlineCalls[0].inline).toEqual({ path: INLINE.path, line: INLINE.line });
+    expect(w.gitea.comments.find((c) => !c.inline)?.body).toContain('Requested revision');
+  });
+
+  it('without an inline comment only the general comment is posted', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    await w.machine.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      decision: 'pass',
+      feedback: 'plain',
+    });
+    expect(w.gitea.comments).toHaveLength(1);
+    expect(w.gitea.comments[0].inline).toBeUndefined();
+  });
+
+  it('a partial inlineComment (missing body) is rejected before any state change', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    await expect(
+      w.machine.pass({
+        actor: teacher,
+        assignmentId: w.assignment.id,
+        submissionId,
+        decision: 'pass',
+        feedback: 'x',
+        inlineComment: { path: INLINE.path, line: INLINE.line } as never,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    await expect(w.repo.getSubmission(submissionId)).resolves.toMatchObject({ status: 'submitted' });
+    expect(w.gitea.comments).toHaveLength(0);
+  });
+
+  it('a partial inlineComment (missing path) is rejected', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    await expect(
+      w.machine.fail({
+        actor: teacher,
+        assignmentId: w.assignment.id,
+        submissionId,
+        decision: 'fail',
+        feedback: 'x',
+        inlineComment: { line: INLINE.line, body: INLINE.body } as never,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(w.gitea.comments).toHaveLength(0);
+  });
+
+  it('an inline posting failure does not fail the decision and produces the audit', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    const realAddComment = w.gitea.addComment;
+    const failInlineOnly = vi.spyOn(w.gitea, 'addComment').mockImplementation((input) =>
+      input.inline
+        ? Promise.reject(new Error('inline boom'))
+        : realAddComment.call(w.gitea, input),
+    );
+
+    const result = await w.machine.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      decision: 'pass',
+      feedback: 'still counts',
+      inlineComment: INLINE,
+    });
+    failInlineOnly.mockRestore();
+
+    expect(result.status).toBe('passed');
+    // The general comment was delivered; the failed inline one was not.
+    expect(w.gitea.comments.filter((c) => !c.inline)).toHaveLength(1);
+    expect(w.gitea.comments.filter((c) => c.inline)).toHaveLength(0);
+    const audit = w.auditRepo.events.find(
+      (e) => e.eventType === 'integration.error' && e.payload.reason === 'review_comment_failed',
+    );
+    expect(audit).toBeTruthy();
+    expect(audit?.payload).toMatchObject({ inlinePath: INLINE.path, inlineLine: INLINE.line });
+  });
+});

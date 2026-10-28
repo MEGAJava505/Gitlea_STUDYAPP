@@ -332,11 +332,19 @@ export interface SubmitResult {
   alreadyExisted: boolean;
 }
 
+/** A teacher's inline remark tied to a specific file path and line. */
+export interface InlineComment {
+  path: string;
+  line: number;
+  body: string;
+}
+
 export interface RequestRevisionInput {
   actor: SessionPrincipal;
   assignmentId: AssignmentId;
   submissionId: SubmissionId;
   feedback: string;
+  inlineComment?: InlineComment;
 }
 
 export interface ReviewInput {
@@ -347,6 +355,7 @@ export interface ReviewInput {
   feedback: string;
   /** Numeric grade 1–5; only honored for a terminal pass/fail when enabled. */
   grade?: NumericGrade | null;
+  inlineComment?: InlineComment;
 }
 
 export interface ReviewResult {

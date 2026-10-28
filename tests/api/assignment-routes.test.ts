@@ -24,7 +24,9 @@ import {
 
 let studentToken = '';
 let teacherToken = '';
+let student2Token = '';
 const rawTokens: string[] = [];
+let gitea: FakeGitea;
 
 const jsonReq = (url: string, body: unknown, headers: Record<string, string> = {}) =>
   new Request(new URL(url, 'http://localhost').toString(), {
@@ -51,10 +53,12 @@ beforeAll(async () => {
   const rolesRepo = new InMemoryRoleRepository({
     users: [
       { id: uid('u-student'), login: 'jdu-2400001', email: 's1@jdu.uz', displayName: 'Student' },
+      { id: uid('u-student-2'), login: 'jdu-2400002', email: 's2@jdu.uz', displayName: 'Student 2' },
       { id: uid('u-teacher'), login: 'teacher-1', email: 't@jdu.uz', displayName: 'Teacher' },
     ],
     roles: [
       { userId: uid('u-student'), role: 'student' },
+      { userId: uid('u-student-2'), role: 'student' },
       { userId: uid('u-teacher'), role: 'teacher' },
     ],
   });
@@ -70,11 +74,15 @@ beforeAll(async () => {
   assignmentRepo.seedLink(
     makeLink({ id: lid('link1'), groupAssignmentId: aid('a1'), studentId: uid('u-student') }),
   );
+  assignmentRepo.seedLink(
+    makeLink({ id: lid('link2'), groupAssignmentId: aid('a1'), studentId: uid('u-student-2'), giteaRepoFullName: 'local-github/assignment-01-jdu-2400002' }),
+  );
 
-  const gitea = new FakeGitea();
-  gitea.commits.add('abc123');
+  const fakeGitea = new FakeGitea();
+  fakeGitea.commits.add('abc123');
+  gitea = fakeGitea;
   const permissions = new PermissionCheckerImpl({ resolver: assignmentRepo, audit });
-  const assignments = new AssignmentStateMachineImpl({ repo: assignmentRepo, gitea, permissions, audit, now });
+  const assignments = new AssignmentStateMachineImpl({ repo: assignmentRepo, gitea: fakeGitea, permissions, audit, now });
 
   configureServices({ sessions, identities, assignments, permissions, audit });
 
@@ -86,9 +94,14 @@ beforeAll(async () => {
     { userId: uid('u-teacher'), login: 'teacher-1', displayName: 'Teacher', roles: ['teacher'] },
     3_600_000,
   );
+  const s2 = await sessions.create(
+    { userId: uid('u-student-2'), login: 'jdu-2400002', displayName: 'Student 2', roles: ['student'] },
+    3_600_000,
+  );
   studentToken = s.token;
   teacherToken = t.token;
-  rawTokens.push(s.token, t.token);
+  student2Token = s2.token;
+  rawTokens.push(s.token, t.token, s2.token);
 });
 
 describe('API routes', () => {
@@ -245,6 +258,77 @@ describe('API routes', () => {
     const body = (await res.json()) as { status: string; review: { decision: string } | null };
     expect(body.status).toBe('passed');
     expect(body.review?.decision).toBe('pass');
+  });
+
+  it('review: 400 on a partial inlineComment (body missing)', async () => {
+    const res = await POST_REVIEW(
+      jsonReq(
+        '/api/v1/assignments/a1/review',
+        {
+          action: 'request_revision',
+          submissionId: 'sub-1',
+          feedback: 'x',
+          inlineComment: { path: 'src/main.ts', line: 42 },
+        },
+        cookieHeader('session', teacherToken),
+      ),
+      ctx('a1'),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('INVALID_INPUT');
+  });
+
+  it('review: 400 on a partial inlineComment (line missing)', async () => {
+    const res = await POST_REVIEW(
+      jsonReq(
+        '/api/v1/assignments/a1/review',
+        {
+          action: 'request_revision',
+          submissionId: 'sub-1',
+          feedback: 'x',
+          inlineComment: { path: 'src/main.ts', body: 'fix' },
+        },
+        cookieHeader('session', teacherToken),
+      ),
+      ctx('a1'),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('INVALID_INPUT');
+  });
+
+  it('review: an inline comment records both a general and an inline Gitea call', async () => {
+    // Fresh submission by a second student so the terminal `sub-1` state does not interfere.
+    const submitRes = await POST_SUBMIT(
+      jsonReq('/api/v1/assignments/a1/submit', { commitSha: 'abc123', idempotencyKey: 'api-inline-1' }, cookieHeader('session', student2Token)),
+      ctx('a1'),
+    );
+    expect(submitRes.status).toBe(201);
+    const submissionId = ((await submitRes.json()) as { submission: { id: string } }).submission.id;
+
+    const before = gitea.comments.length;
+    const res = await POST_REVIEW(
+      jsonReq(
+        '/api/v1/assignments/a1/review',
+        {
+          action: 'pass',
+          submissionId,
+          feedback: 'ok',
+          inlineComment: { path: 'src/main.ts', line: 42, body: 'guard clause here' },
+        },
+        cookieHeader('session', teacherToken),
+      ),
+      ctx('a1'),
+    );
+    expect(res.status).toBe(200);
+
+    const recorded = gitea.comments.slice(before);
+    const general = recorded.find((c) => !c.inline);
+    const inline = recorded.find((c) => c.inline);
+    expect(general).toBeTruthy();
+    expect(general!.body).toContain('Passed');
+    expect(inline).toBeTruthy();
+    expect(inline!.body).toBe('guard clause here');
+    expect(inline!.inline).toEqual({ path: 'src/main.ts', line: 42 });
   });
 
   it('no handler leaks session tokens or secrets in the payload', async () => {

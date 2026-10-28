@@ -6,6 +6,7 @@ import {
   AssignmentView,
   AuditLogWriter,
   Clock,
+  InlineComment,
   NumericGrade,
   PermissionChecker,
   RepositoryLinkId,
@@ -248,6 +249,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
 
   async requestRevision(input: RequestRevisionInput): Promise<ReviewResult> {
     const { actor, submissionId, feedback } = input;
+    const inline = this.requireCompleteInline(input);
     const { submission, assignment, link } = await this.resolveReviewTarget(input);
     await this.permissions.assert(actor, 'assignment:review', {
       type: 'submission',
@@ -262,7 +264,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     }
 
     await this.repo.updateSubmissionStatus(submissionId, 'revision_required');
-    await this.postReviewComment(link, submission, `Requested revision: ${feedback || 'Please fix and resubmit.'}`);
+    await this.postReviewComment(link, submission, `Requested revision: ${feedback || 'Please fix and resubmit.'}`, inline);
     await this.audit.append({
       actorId: actor.userId,
       eventType: 'review.decision',
@@ -287,6 +289,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     targetStatus: 'passed' | 'failed',
   ): Promise<ReviewResult> {
     const { actor, submissionId, feedback } = input;
+    const inline = this.requireCompleteInline(input);
     const { submission, link } = await this.resolveReviewTarget(input);
     await this.permissions.assert(actor, 'assignment:review', {
       type: 'submission',
@@ -310,6 +313,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
       link,
       submission,
       `${decision === 'pass' ? 'Passed' : 'Failed'}: ${feedback || 'No additional feedback.'}${grade !== null ? ` Grade: ${grade}/5.` : ''}`,
+      inline,
     );
     await this.audit.append({
       actorId: actor.userId,
@@ -358,31 +362,68 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     return { submission, assignment, link };
   }
 
-  /** Posts the review decision as a general comment on the submission's PR. */
+  /**
+   * Rejects a partially-supplied inlineComment (any of path/line/body missing)
+   * before any state change, so a review is never recorded with a dangling
+   * remark. Returns the complete comment, or undefined when none was provided.
+   */
+  private requireCompleteInline(
+    input: { inlineComment?: InlineComment },
+  ): InlineComment | undefined {
+    const { inlineComment } = input;
+    if (inlineComment === undefined) return undefined;
+    if (typeof inlineComment.path !== 'string' || !inlineComment.path.trim()
+      || typeof inlineComment.line !== 'number' || !Number.isInteger(inlineComment.line)
+      || typeof inlineComment.body !== 'string' || !inlineComment.body.trim()) {
+      throw errors.invalidInput('inlineComment requires path, line, and body together');
+    }
+    return inlineComment;
+  }
+
+  /**
+   * Posts the review decision as a general comment on the submission's PR, and
+   * — when the teacher attached an inline remark — a second line comment at the
+   * requested path/line carrying the remark's body. Both are fail-soft: a
+   * remote posting failure is audited and swallowed, never failing the review
+   * decision itself. The inline call is a separate `addComment` so a failing
+   * remark can never retroactively un-post the delivered general comment.
+   */
   private async postReviewComment(
     link: RepositoryLinkRecord,
     submission: SubmissionRecord,
     body: string,
+    inline?: InlineComment,
   ): Promise<void> {
-    try {
-      const pr = await this.gitea.ensureReviewPullRequest({
-        repoFullName: link.giteaRepoFullName,
-        protectedRef: submission.protectedRef,
-        attempt: submission.attempt,
-      });
-      await this.gitea.addComment({
-        repoFullName: link.giteaRepoFullName,
-        pullRequestNumber: pr.number,
-        body,
-      });
-    } catch {
-      await this.audit.append({
-        actorId: null,
-        eventType: 'integration.error',
-        targetType: 'submission',
-        targetId: submission.id,
-        payload: { reason: 'review_comment_failed' },
-      });
+    const post = async (comment: { body: string; inline?: { path: string; line: number } }): Promise<void> => {
+      try {
+        const pr = await this.gitea.ensureReviewPullRequest({
+          repoFullName: link.giteaRepoFullName,
+          protectedRef: submission.protectedRef,
+          attempt: submission.attempt,
+        });
+        await this.gitea.addComment({
+          repoFullName: link.giteaRepoFullName,
+          pullRequestNumber: pr.number,
+          body: comment.body,
+          inline: comment.inline,
+        });
+      } catch {
+        await this.audit.append({
+          actorId: null,
+          eventType: 'integration.error',
+          targetType: 'submission',
+          targetId: submission.id,
+          payload: {
+            reason: 'review_comment_failed',
+            ...(comment.inline ? { inlinePath: comment.inline.path, inlineLine: comment.inline.line } : {}),
+          },
+        });
+      }
+    };
+
+    await post({ body });
+    if (inline) {
+      await post({ body: inline.body, inline: { path: inline.path, line: inline.line } });
     }
   }
 

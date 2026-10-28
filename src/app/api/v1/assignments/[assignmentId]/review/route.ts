@@ -14,7 +14,7 @@ interface ReviewBody {
   submissionId?: string;
   feedback?: string;
   grade?: number | null;
-  inlineComment?: { path?: string; line?: number };
+  inlineComment?: { path?: string; line?: number; body?: string };
 }
 
 export async function POST(
@@ -35,7 +35,8 @@ export async function POST(
     const submissionId = body.submissionId as SubmissionId;
     const feedback = body.feedback ?? '';
     const grade = parseGrade(body.grade);
-    const base = { actor: principal, assignmentId: assignmentId as AssignmentId, submissionId, feedback };
+    const inlineComment = parseInlineComment(body.inlineComment);
+    const base = { actor: principal, assignmentId: assignmentId as AssignmentId, submissionId, feedback, inlineComment };
 
     let result;
     switch (body.action) {
@@ -57,6 +58,24 @@ export async function POST(
     const { status, body } = toErrorBody(err);
     return Response.json(body, { status });
   }
+}
+
+/**
+ * Validates an optional inline remark: all of path, line, and body must be
+ * present and well-formed together; a partial inlineComment is a 400.
+ */
+function parseInlineComment(
+  value: ReviewBody['inlineComment'],
+): import('../../../../../../shared/contracts').InlineComment | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value.path !== 'string' || !value.path.trim()
+    || typeof value.line !== 'number' || !Number.isInteger(value.line)
+    || typeof value.body !== 'string' || !value.body.trim()
+  ) {
+    throw errors.invalidInput('inlineComment requires path, line, and body together');
+  }
+  return { path: value.path, line: value.line, body: value.body };
 }
 
 /** Validates an optional numeric grade to the 1–5 scale; null when absent. */
