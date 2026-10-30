@@ -97,7 +97,7 @@ export function createProductionServices(): AppServices {
   const assignments = new AssignmentStateMachineImpl({
     repo: assignmentRepo,
     gitea: giteaSubmissions,
-    ...{ numericGrading: grading },
+    numericGrading: grading,
     permissions,
     audit,
     now: Date.now,

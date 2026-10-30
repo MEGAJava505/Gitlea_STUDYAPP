@@ -58,6 +58,8 @@ export class GradingService {
 
   /** All graded reviews for the given submissions (teacher surface only). */
   async listReviews(submissionIds: readonly SubmissionId[]): Promise<ReviewRecord[]> {
-    return this.deps.reviews.listReviewsForReview(submissionIds);
+    const enabled = await this.isEnabled();
+    const reviews = await this.deps.reviews.listReviewsForReview(submissionIds);
+    return enabled ? reviews : reviews.map((review) => ({ ...review, grade: null }));
   }
 }

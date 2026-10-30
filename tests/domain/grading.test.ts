@@ -115,4 +115,13 @@ describe('GradingService', () => {
     const on = new GradingService({ settings: settingsRepo({ enabled: true }), reviews: reviewRepo(reviews), audit: audit(), now: () => now0 });
     expect(await on.getStudentGrade('sub1')).toBeNull();
   });
+  it('masks teacher grades while disabled without changing persisted grades or decisions', async () => {
+    const reviews = [{ submissionId: 'sub1', reviewerId: 't1', decision: 'pass' as const, feedback: 'ok', grade: 5, createdAt: now0 }];
+    const service = new GradingService({ settings: settingsRepo(false), reviews: reviewRepo(reviews), audit: audit(), now: () => now0 });
+    expect(await service.listReviews(['sub1'])).toMatchObject([{ decision: 'pass', grade: null }]);
+    expect(reviews[0]?.grade).toBe(5);
+    await service.setEnabled(true);
+    expect(await service.listReviews(['sub1'])).toMatchObject([{ decision: 'pass', grade: 5 }]);
+  });
+
 });
