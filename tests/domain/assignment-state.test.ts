@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { canTransition } from '../../src/domain/assignments/state-machine';
+import { AssignmentStateMachineImpl, canTransition } from '../../src/domain/assignments/state-machine';
 import { errors } from '../../src/shared/contracts';
 import { makeAssignmentWorld, principal } from './fakes';
 
@@ -483,7 +483,8 @@ describe('review transitions', () => {
       idempotencyKey: 'key-1',
     });
 
-    const result = await w.machine.pass({
+    const enabled = new AssignmentStateMachineImpl({ ...w, numericGrading: { isEnabled: async () => true } });
+    const result = await enabled.pass({
       actor: teacher,
       assignmentId: w.assignment.id,
       submissionId: sub.submission.id,
@@ -530,7 +531,8 @@ describe('review transitions', () => {
       commitSha: COMMIT,
       idempotencyKey: 'key-1',
     });
-    await w.machine.pass({
+    const enabled = new AssignmentStateMachineImpl({ ...w, numericGrading: { isEnabled: async () => true } });
+    await enabled.pass({
       actor: teacher,
       assignmentId: w.assignment.id,
       submissionId: sub.submission.id,
@@ -542,7 +544,7 @@ describe('review transitions', () => {
     expect(w.gitea.comments.length).toBeGreaterThan(0);
     const comment = w.gitea.comments[0];
     expect(comment.body).toContain('Passed');
-    expect(comment.body).toContain('Grade: 4/5');
+    expect(comment.body).not.toContain('Grade:');
   });
 });
 
@@ -688,5 +690,32 @@ describe('inline review comments', () => {
     );
     expect(audit).toBeTruthy();
     expect(audit?.payload).toMatchObject({ inlinePath: INLINE.path, inlineLine: INLINE.line });
+  });
+});
+
+
+describe('numeric grading disabled by default', () => {
+  it('checks the current toggle on every decision and keeps saved grades when disabled', async () => {
+    const w = makeAssignmentWorld();
+    let enabled = true;
+    const machine = new AssignmentStateMachineImpl({ ...w, numericGrading: { isEnabled: async () => enabled } });
+    const { submission } = await machine.submit({ actor: principal(w.student, ['student']), assignmentId: w.assignment.id, commitSha: COMMIT, idempotencyKey: KEY });
+    const input = { actor: principal(w.teacher, ['teacher']), assignmentId: w.assignment.id, submissionId: submission.id, decision: 'pass' as const, feedback: 'ok', grade: 4 as const };
+    enabled = false;
+    await expect(machine.pass(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    enabled = true;
+    const result = await machine.pass(input);
+    enabled = false;
+    expect(result.review?.grade).toBe(4);
+    expect(w.gitea.comments[0].body).not.toContain('Grade:');
+  });
+
+  it('rejects a numeric grade without mutating status, reviews or remote comments', async () => {
+    const w = makeAssignmentWorld();
+    const { submission } = await w.machine.submit({ actor: principal(w.student, ['student']), assignmentId: w.assignment.id, commitSha: COMMIT, idempotencyKey: KEY });
+    await expect(w.machine.pass({ actor: principal(w.teacher, ['teacher']), assignmentId: w.assignment.id, submissionId: submission.id, decision: 'pass', feedback: 'ok', grade: 5 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(await w.repo.getSubmission(submission.id)).toMatchObject({ status: 'submitted' });
+    expect(w.gitea.comments).toHaveLength(0);
+    expect(w.auditRepo.events.some((e) => e.eventType === 'review.graded')).toBe(false);
   });
 });

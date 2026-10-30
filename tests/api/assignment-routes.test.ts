@@ -260,6 +260,18 @@ describe('API routes', () => {
     expect(body.review?.decision).toBe('pass');
   });
 
+  it.each([null, { path: 'a.ts', line: 0, body: 'fix' }, { path: 'a.ts', line: -1, body: 'fix' }])('review: malformed inline comment %j is a 400', async (inlineComment) => {
+    const res = await POST_REVIEW(jsonReq('/api/v1/assignments/a1/review', { action: 'request_revision', submissionId: 'sub-1', inlineComment }, cookieHeader('session', teacherToken)), ctx('a1'));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('INVALID_INPUT');
+  });
+
+  it('review: request_revision rejects a supplied grade', async () => {
+    const res = await POST_REVIEW(jsonReq('/api/v1/assignments/a1/review', { action: 'request_revision', submissionId: 'sub-1', grade: 5 }, cookieHeader('session', teacherToken)), ctx('a1'));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('INVALID_INPUT');
+  });
+
   it('review: 400 on a partial inlineComment (body missing)', async () => {
     const res = await POST_REVIEW(
       jsonReq(

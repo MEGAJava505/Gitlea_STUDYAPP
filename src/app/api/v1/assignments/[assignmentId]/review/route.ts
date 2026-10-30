@@ -41,6 +41,7 @@ export async function POST(
     let result;
     switch (body.action) {
       case 'request_revision':
+        if (body.grade !== undefined) throw errors.invalidInput('grade is not supported for request_revision');
         result = await assignments.requestRevision(base);
         break;
       case 'pass':
@@ -69,8 +70,8 @@ function parseInlineComment(
 ): import('../../../../../../shared/contracts').InlineComment | undefined {
   if (value === undefined) return undefined;
   if (
-    typeof value.path !== 'string' || !value.path.trim()
-    || typeof value.line !== 'number' || !Number.isInteger(value.line)
+    value === null || typeof value !== 'object' || typeof value.path !== 'string' || !value.path.trim()
+    || typeof value.line !== 'number' || !Number.isInteger(value.line) || value.line < 1
     || typeof value.body !== 'string' || !value.body.trim()
   ) {
     throw errors.invalidInput('inlineComment requires path, line, and body together');

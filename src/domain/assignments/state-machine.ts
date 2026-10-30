@@ -54,6 +54,7 @@ interface StateMachineDeps {
   permissions: PermissionChecker;
   audit: AuditLogWriter;
   now: Clock;
+  numericGrading?: { isEnabled(): Promise<boolean> };
 }
 
 // Coordination avoids duplicate remote work for machines sharing an adapter.
@@ -66,6 +67,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
   private readonly permissions: PermissionChecker;
   private readonly audit: AuditLogWriter;
   private readonly now: Clock;
+  private readonly numericGrading: { isEnabled(): Promise<boolean> };
 
   constructor(deps: StateMachineDeps) {
     this.repo = deps.repo;
@@ -73,6 +75,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     this.permissions = deps.permissions;
     this.audit = deps.audit;
     this.now = deps.now;
+    this.numericGrading = deps.numericGrading ?? { isEnabled: async () => false };
   }
 
   async submit(input: SubmitInput): Promise<SubmitResult> {
@@ -301,6 +304,9 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     }
 
     const grade = this.normalizeGrade(input.grade, decision);
+    if (grade !== null && !(await this.numericGrading.isEnabled())) {
+      throw errors.forbidden('Numeric grading is disabled');
+    }
     await this.repo.updateSubmissionStatus(submissionId, targetStatus);
     const review = await this.repo.insertReview({
       submissionId,
@@ -312,7 +318,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     await this.postReviewComment(
       link,
       submission,
-      `${decision === 'pass' ? 'Passed' : 'Failed'}: ${feedback || 'No additional feedback.'}${grade !== null ? ` Grade: ${grade}/5.` : ''}`,
+      `${decision === 'pass' ? 'Passed' : 'Failed'}: ${feedback || 'No additional feedback.'}`,
       inline,
     );
     await this.audit.append({
@@ -372,8 +378,8 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
   ): InlineComment | undefined {
     const { inlineComment } = input;
     if (inlineComment === undefined) return undefined;
-    if (typeof inlineComment.path !== 'string' || !inlineComment.path.trim()
-      || typeof inlineComment.line !== 'number' || !Number.isInteger(inlineComment.line)
+    if (inlineComment === null || typeof inlineComment !== 'object' || typeof inlineComment.path !== 'string' || !inlineComment.path.trim()
+      || typeof inlineComment.line !== 'number' || !Number.isInteger(inlineComment.line) || inlineComment.line < 1
       || typeof inlineComment.body !== 'string' || !inlineComment.body.trim()) {
       throw errors.invalidInput('inlineComment requires path, line, and body together');
     }
