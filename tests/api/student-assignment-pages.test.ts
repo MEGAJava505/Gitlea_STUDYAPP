@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudentAssignmentDetail } from '../../src/server/student-assignments';
 
-const fixture = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn() }));
+const fixture = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), grading: { isEnabled: vi.fn() } }));
 vi.mock('next/headers', () => ({ headers: async () => new Headers({ cookie: 'session=student' }) }));
 vi.mock('next/navigation', () => ({
   notFound: () => { throw new Error('NOT_FOUND'); },
@@ -12,7 +12,7 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 vi.mock('../../src/server/auth-context', () => ({
-  getServices: () => ({ studentAssignments: fixture }),
+  getServices: () => ({ studentAssignments: fixture, grading: fixture.grading }),
   createAuthContext: () => ({ principal: async () => ({ userId: 'student', roles: ['student'] }) }),
 }));
 import DetailPage from '../../src/app/(panels)/student/assignments/[assignmentId]/page';
@@ -32,6 +32,7 @@ beforeEach(() => {
   };
   fixture.get.mockImplementation(async () => assignment);
   fixture.list.mockImplementation(async () => [assignment]);
+  fixture.grading.isEnabled.mockImplementation(async () => false);
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
@@ -96,5 +97,31 @@ describe('student assignment server pages', () => {
     expect(html).not.toContain('Create my repository');
     assignment.repository = { fullName: 'org/a1-student' };
     expect(await renderDetail()).not.toContain('Submit work');
+  });
+
+  it('hides the grade column entirely while numeric grading is disabled', async () => {
+    assignment.attempts = [{
+      attempt: 1, commitSha: 'a'.repeat(40), submittedAt: 1_700_000_000_000, status: 'passed',
+      review: { decision: 'passed', feedback: 'Good', grade: 4 },
+    }];
+    fixture.grading.isEnabled.mockImplementation(async () => false);
+    const html = await renderDetail();
+    expect(html).toContain('Feedback');
+    expect(html).not.toContain('<th>Grade</th>');
+    expect(html).not.toContain('data-grade');
+    // The feedback still surfaces; only the grade is suppressed.
+    expect(html).toContain('Good');
+  });
+
+  it('shows the grade column and value while numeric grading is enabled', async () => {
+    assignment.attempts = [{
+      attempt: 1, commitSha: 'a'.repeat(40), submittedAt: 1_700_000_000_000, status: 'passed',
+      review: { decision: 'passed', feedback: 'Good', grade: 4 },
+    }];
+    fixture.grading.isEnabled.mockImplementation(async () => true);
+    const html = await renderDetail();
+    expect(html).toContain('<th>Grade</th>');
+    expect(html).toContain('data-grade');
+    expect(html).toContain('>4<');
   });
 });

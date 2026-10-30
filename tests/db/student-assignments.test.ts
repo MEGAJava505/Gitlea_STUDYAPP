@@ -120,4 +120,56 @@ describe('StudentAssignmentsQuery', () => {
       expect((await query.list(student))[0].status).toBe(terminal);
     }
   });
+
+  it('surfaces the active review feedback and grade for each attempt', async () => {
+    const student = user('jdu-5');
+    member(groupA, student);
+    const ga = assignment(groupA, 'A1');
+    const link = randomUUID();
+    sqlite.prepare(`INSERT INTO repository_links (id, group_assignment_id, student_id, gitea_repository_id, full_name, status)
+      VALUES (?, ?, ?, ?, ?, 'submitted')`).run(link, ga, student, 901, 'org/a1-jdu-5');
+    const sub1 = randomUUID();
+    const sub2 = randomUUID();
+    sqlite.prepare(`INSERT INTO submissions (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at, idempotency_key)
+      VALUES (?, ?, 1, ?, ?, 'revision_required', 1_700_000_000_100, ?)`).run(sub1, link, '1'.repeat(40), 'refs/heads/submission/1', 'k1');
+    sqlite.prepare(`INSERT INTO submissions (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at, idempotency_key)
+      VALUES (?, ?, 2, ?, ?, 'passed', 1_700_000_000_200, ?)`).run(sub2, link, '2'.repeat(40), 'refs/heads/submission/2', 'k2');
+
+    // Active review only on attempt 2 (passed with grade 4); attempt 1 has an
+    // inactive (superseded) review that must NOT surface.
+    sqlite.prepare(`INSERT INTO reviews (id, submission_id, reviewer_id, decision, feedback, grade, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, 'revision_required', 'old remark', NULL, 0, 1, 1)`).run(randomUUID(), sub1, teacher);
+    sqlite.prepare(`INSERT INTO reviews (id, submission_id, reviewer_id, decision, feedback, grade, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, 'passed', 'Well done', 4, 1, 2, 2)`).run(randomUUID(), sub2, teacher);
+
+    const detail = await query.get(student, ga);
+    expect(detail?.attempts.map((a) => a.attempt)).toEqual([2, 1]);
+    const latest = detail?.attempts[0];
+    expect(latest?.review).toEqual({ decision: 'passed', feedback: 'Well done', grade: 4 });
+    // Attempt 1 has no *active* review, so it surfaces as null.
+    expect(detail?.attempts[1].review).toBeNull();
+  });
+
+  it('coerces only integer grades 1–5 and drops anything else', async () => {
+    const student = user('jdu-6');
+    member(groupA, student);
+    const ga = assignment(groupA, 'A1');
+    const link = randomUUID();
+    sqlite.prepare(`INSERT INTO repository_links (id, group_assignment_id, student_id, gitea_repository_id, full_name, status)
+      VALUES (?, ?, ?, ?, ?, 'passed')`).run(link, ga, student, 902, 'org/a1-jdu-6');
+    const sub = randomUUID();
+    sqlite.prepare(`INSERT INTO submissions (id, repository_link_id, attempt, commit_sha, protected_ref, status, submitted_at, idempotency_key)
+      VALUES (?, ?, 1, ?, ?, 'passed', 1_700_000_000_300, ?)`).run(sub, link, '3'.repeat(40), 'refs/heads/submission/3', 'k3');
+
+    sqlite.prepare(`INSERT INTO reviews (id, submission_id, reviewer_id, decision, feedback, grade, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, 'passed', 'ok', 3.5, 1, 1, 1)`).run(randomUUID(), sub, teacher);
+    const detail = await query.get(student, ga);
+    expect(detail?.attempts[0].review?.grade).toBeNull();
+
+    sqlite.prepare('UPDATE reviews SET grade = 6 WHERE submission_id = ?').run(sub);
+    expect((await query.get(student, ga))?.attempts[0].review?.grade).toBeNull();
+
+    sqlite.prepare('UPDATE reviews SET grade = 5 WHERE submission_id = ?').run(sub);
+    expect((await query.get(student, ga))?.attempts[0].review?.grade).toBe(5);
+  });
 });
