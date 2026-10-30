@@ -67,6 +67,26 @@ describe('PermissionChecker', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
+  it.each([
+    { roles: ['admin'] },
+    { roles: ['owner'] },
+    { roles: ['teacher', 'admin'] },
+    { roles: ['teacher', 'owner'] },
+  ])(
+    'requires assignment responsibility for academic review even with roles $roles', async ({ roles }) => {
+      const { checker, submissionId } = await setup();
+      const authorized = principal(uid('u-teacher'), roles as ('teacher' | 'admin' | 'owner')[]);
+      const unrelated = principal(uid('u-stranger'), roles as ('teacher' | 'admin' | 'owner')[]);
+
+      await expect(
+        checker.assert(authorized, 'assignment:review', { type: 'submission', id: submissionId }),
+      ).resolves.toBeUndefined();
+      await expect(
+        checker.assert(unrelated, 'assignment:review', { type: 'submission', id: submissionId }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    },
+  );
+
   it('checks the role on every permission', async () => {
     const { checker, submissionId } = await setup();
     const student = principal(uid('u-student'), ['student']);
