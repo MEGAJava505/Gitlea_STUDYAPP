@@ -12,6 +12,7 @@ import { DbAssignmentRepository } from './db-assignment-repository';
 import { DbDeadlineSweeperRepository } from './db-deadline-sweeper-repository';
 import { DeadlineSweeper } from '../domain/assignments/deadline-sweeper';
 import { StudentAssignmentsQuery } from './student-assignments';
+import { TeacherSubmissionsQuery } from './teacher-submissions';
 import { DbProvisioningRepository } from './db-provisioning-repository';
 import { GiteaProvisioningAdapter } from './ports/gitea-provisioning';
 import { ProvisioningService } from '../domain/git/provisioning';
@@ -117,6 +118,7 @@ export function createProductionServices(): AppServices {
       sshCloneBaseUrl: process.env.GITEA_SSH_CLONE_BASE_URL ?? '',
     }),
     studentAssignments: new StudentAssignmentsQuery(db),
+    teacherSubmissions: new TeacherSubmissionsQuery(db),
     deadlineSweeper: new DeadlineSweeper({ repo: new DbDeadlineSweeperRepository(db), audit, now: Date.now }),
     permissions,
     audit,

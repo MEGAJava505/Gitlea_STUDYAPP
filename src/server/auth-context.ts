@@ -11,6 +11,7 @@ import { createProductionServices } from './production-services';
 import type { CourseService } from '../domain/courses/service';
 import type { DeadlineSweeper } from '../domain/assignments/deadline-sweeper';
 import type { StudentAssignmentsQuery } from './student-assignments';
+import type { TeacherSubmissionsQuery } from './teacher-submissions';
 import type { ProvisioningService } from '../domain/git/provisioning';
 import type { MaterialsService } from '../domain/materials/service';
 import type { GradingService } from '../domain/grading/service';
@@ -72,6 +73,7 @@ export interface AppServices {
   assignments?: AssignmentStateMachine;
   deadlineSweeper?: DeadlineSweeper;
   studentAssignments?: StudentAssignmentsQuery;
+  teacherSubmissions?: TeacherSubmissionsQuery;
   provisioning?: ProvisioningService;
   courses?: CourseService;
   permissions?: PermissionChecker;
