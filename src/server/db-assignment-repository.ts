@@ -194,6 +194,7 @@ export class DbAssignmentRepository implements AssignmentRepository {
       decision: input.decision,
       feedback: input.feedback,
       grade: input.grade,
+      isActive: true,
       createdAt: now,
     };
   }

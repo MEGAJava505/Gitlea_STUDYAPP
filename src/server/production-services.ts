@@ -19,6 +19,8 @@ import { GiteaSubmissionAdapter } from './ports/gitea-submission-adapter';
 import { DbMaterialsRepository } from './db-materials-repository';
 import { FilesystemBlobStorage } from './blob-storage-filesystem';
 import { MaterialsService } from '../domain/materials/service';
+import { DbSystemSettingsRepository, DbReviewQueryRepository } from './db-grading-repositories';
+import { GradingService } from '../domain/grading/service';
 import { openSqliteDatabase } from '../db/migrate';
 import * as tables from '../db/schema';
 import * as relations from '../db/relations';
@@ -86,9 +88,16 @@ export function createProductionServices(): AppServices {
   const assignmentRepo = new DbAssignmentRepository(db);
   const permissions = new PermissionCheckerImpl({ resolver: assignmentRepo, audit });
   const giteaSubmissions = new GiteaSubmissionAdapter();
+  const grading = new GradingService({
+    settings: new DbSystemSettingsRepository(db),
+    reviews: new DbReviewQueryRepository(db),
+    audit,
+    now: Date.now,
+  });
   const assignments = new AssignmentStateMachineImpl({
     repo: assignmentRepo,
     gitea: giteaSubmissions,
+    ...{ numericGrading: grading },
     permissions,
     audit,
     now: Date.now,
@@ -111,6 +120,7 @@ export function createProductionServices(): AppServices {
     deadlineSweeper: new DeadlineSweeper({ repo: new DbDeadlineSweeperRepository(db), audit, now: Date.now }),
     permissions,
     audit,
+    grading,
   };
   if (storageRoot) services.materials = new MaterialsService({
     repo: new DbMaterialsRepository(db), blobs: new FilesystemBlobStorage(storageRoot), now: Date.now,

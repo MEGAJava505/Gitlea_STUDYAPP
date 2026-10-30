@@ -1,9 +1,6 @@
-import { SystemSetting } from '../../shared/contracts';
+import { SystemSettingsRepository } from '../../shared/contracts';
 
-export interface SystemSettingsRepository {
-  get(key: string): Promise<SystemSetting | null>;
-  set(key: string, value: unknown): Promise<void>;
-}
+export type { SystemSettingsRepository } from '../../shared/contracts';
 
 export interface NumericGradingToggle {
   /** Returns true when numeric grading (1–5) is enabled for teachers to record. */

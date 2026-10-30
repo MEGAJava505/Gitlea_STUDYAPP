@@ -60,6 +60,12 @@ export interface SystemSetting {
   updatedAt: number;
 }
 
+/** Read/write port over the `system_settings` table (key → JSON value). */
+export interface SystemSettingsRepository {
+  get(key: string): Promise<SystemSetting | null>;
+  set(key: string, value: unknown): Promise<void>;
+}
+
 /* ------------------------------------------------------------------ *
  * Clock
  * ------------------------------------------------------------------ */
@@ -198,7 +204,17 @@ export interface ReviewRecord {
   feedback: string;
   /** Numeric grade 1–5; null when numeric grading is disabled or not set. */
   grade: NumericGrade | null;
+  /** The single active review for a submission; superseded reviews are kept for audit but inactive. */
+  isActive: boolean;
   createdAt: number;
+}
+
+/** Read port over the `reviews` table for the grading / review-UI surfaces. */
+export interface ReviewQueryRepository {
+  /** The currently-active review for a submission, or null when none has been recorded. */
+  getLatestActiveReview(submissionId: SubmissionId): Promise<ReviewRecord | null>;
+  /** All active reviews whose submissions are in the given set, newest-first. */
+  listReviewsForReview(submissionIds: readonly SubmissionId[]): Promise<ReviewRecord[]>;
 }
 
 export interface NewReview {
@@ -231,6 +247,7 @@ export type AuditEventType =
   | 'review.decision'
   | 'review.graded'
   | 'review.denied'
+  | 'grading.updated'
   | 'permission.denied'
   | 'integration.error';
 
