@@ -257,7 +257,14 @@ export class FakeGitea implements GiteaSubmissionPort {
   snapshots: Array<{ repoFullName: string; attempt: number; commitSha: string; protectedRef: string }> = [];
   failSnapshot = false;
   failPullRequest = false;
+  failComment = false;
   pullRequests: Array<{ repoFullName: string; protectedRef: string; number: number }> = [];
+  comments: Array<{
+    repoFullName: string;
+    pullRequestNumber: number;
+    body: string;
+    inline?: { path: string; line: number };
+  }> = [];
 
   async hasCommit(input: { repoFullName: string; commitSha: string }): Promise<boolean> {
     return this.commits.has(input.commitSha);
@@ -297,6 +304,16 @@ export class FakeGitea implements GiteaSubmissionPort {
       (s) => s.repoFullName === input.repoFullName && s.attempt === input.attempt,
     );
     return found ? { protectedRef: found.protectedRef, commitSha: found.commitSha } : null;
+  }
+
+  async addComment(input: {
+    repoFullName: string;
+    pullRequestNumber: number;
+    body: string;
+    inline?: { path: string; line: number };
+  }): Promise<void> {
+    if (this.failComment) throw new Error('comment boom');
+    this.comments.push(input);
   }
 }
 

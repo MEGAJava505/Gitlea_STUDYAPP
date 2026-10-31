@@ -6,8 +6,11 @@ import {
   AssignmentView,
   AuditLogWriter,
   Clock,
+  InlineComment,
+  NumericGrade,
   PermissionChecker,
   RepositoryLinkId,
+  RepositoryLinkRecord,
   RequestRevisionInput,
   ReviewInput,
   ReviewResult,
@@ -51,6 +54,7 @@ interface StateMachineDeps {
   permissions: PermissionChecker;
   audit: AuditLogWriter;
   now: Clock;
+  numericGrading?: { isEnabled(): Promise<boolean> };
 }
 
 // Coordination avoids duplicate remote work for machines sharing an adapter.
@@ -63,6 +67,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
   private readonly permissions: PermissionChecker;
   private readonly audit: AuditLogWriter;
   private readonly now: Clock;
+  private readonly numericGrading: { isEnabled(): Promise<boolean> };
 
   constructor(deps: StateMachineDeps) {
     this.repo = deps.repo;
@@ -70,6 +75,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     this.permissions = deps.permissions;
     this.audit = deps.audit;
     this.now = deps.now;
+    this.numericGrading = deps.numericGrading ?? { isEnabled: async () => false };
   }
 
   async submit(input: SubmitInput): Promise<SubmitResult> {
@@ -246,7 +252,8 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
 
   async requestRevision(input: RequestRevisionInput): Promise<ReviewResult> {
     const { actor, submissionId, feedback } = input;
-    const { submission, assignment } = await this.resolveReviewTarget(input);
+    const inline = this.requireCompleteInline(input);
+    const { submission, assignment, link } = await this.resolveReviewTarget(input);
     await this.permissions.assert(actor, 'assignment:review', {
       type: 'submission',
       id: submissionId,
@@ -260,6 +267,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     }
 
     await this.repo.updateSubmissionStatus(submissionId, 'revision_required');
+    await this.postReviewComment(link, submission, `Requested revision: ${feedback || 'Please fix and resubmit.'}`, inline);
     await this.audit.append({
       actorId: actor.userId,
       eventType: 'review.decision',
@@ -284,7 +292,8 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     targetStatus: 'passed' | 'failed',
   ): Promise<ReviewResult> {
     const { actor, submissionId, feedback } = input;
-    const { submission } = await this.resolveReviewTarget(input);
+    const inline = this.requireCompleteInline(input);
+    const { submission, link } = await this.resolveReviewTarget(input);
     await this.permissions.assert(actor, 'assignment:review', {
       type: 'submission',
       id: submissionId,
@@ -294,27 +303,56 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
       throw errors.invalidState(`Cannot mark as ${targetStatus} from status "${submission.status}"`);
     }
 
+    const grade = this.normalizeGrade(input.grade, decision);
+    if (grade !== null && !(await this.numericGrading.isEnabled())) {
+      throw errors.forbidden('Numeric grading is disabled');
+    }
     await this.repo.updateSubmissionStatus(submissionId, targetStatus);
     const review = await this.repo.insertReview({
       submissionId,
       reviewerId: actor.userId,
       decision,
       feedback,
+      grade,
     });
+    await this.postReviewComment(
+      link,
+      submission,
+      `${decision === 'pass' ? 'Passed' : 'Failed'}: ${feedback || 'No additional feedback.'}`,
+      inline,
+    );
     await this.audit.append({
       actorId: actor.userId,
       eventType: 'review.decision',
       targetType: 'submission',
       targetId: submissionId,
-      payload: { decision, status: targetStatus, feedback },
+      payload: { decision, status: targetStatus, feedback, grade },
     });
+    if (grade !== null) {
+      await this.audit.append({
+        actorId: actor.userId,
+        eventType: 'review.graded',
+        targetType: 'submission',
+        targetId: submissionId,
+        payload: { grade, decision },
+      });
+    }
     return { review, status: targetStatus };
+  }
+
+  /** Validates a numeric grade against the 1–5 scale; null when absent/disabled. */
+  private normalizeGrade(grade: unknown, _decision: 'pass' | 'fail'): NumericGrade | null {
+    if (grade === null || grade === undefined) return null;
+    if (typeof grade !== 'number' || !Number.isInteger(grade) || grade < 1 || grade > 5) {
+      throw errors.invalidInput('grade must be an integer between 1 and 5');
+    }
+    return grade as NumericGrade;
   }
 
   private async resolveReviewTarget(input: {
     assignmentId: AssignmentId;
     submissionId: SubmissionId;
-  }): Promise<{ submission: SubmissionRecord; assignment: AssignmentView }> {
+  }): Promise<{ submission: SubmissionRecord; assignment: AssignmentView; link: RepositoryLinkRecord }> {
     const submission = await this.repo.getSubmission(input.submissionId);
     if (!submission) throw errors.notFound('submission');
 
@@ -327,7 +365,72 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     if (assignment.id !== input.assignmentId) {
       throw errors.invalidInput('submission does not belong to this assignment');
     }
-    return { submission, assignment };
+    return { submission, assignment, link };
+  }
+
+  /**
+   * Rejects a partially-supplied inlineComment (any of path/line/body missing)
+   * before any state change, so a review is never recorded with a dangling
+   * remark. Returns the complete comment, or undefined when none was provided.
+   */
+  private requireCompleteInline(
+    input: { inlineComment?: InlineComment },
+  ): InlineComment | undefined {
+    const { inlineComment } = input;
+    if (inlineComment === undefined) return undefined;
+    if (inlineComment === null || typeof inlineComment !== 'object' || typeof inlineComment.path !== 'string' || !inlineComment.path.trim()
+      || typeof inlineComment.line !== 'number' || !Number.isInteger(inlineComment.line) || inlineComment.line < 1
+      || typeof inlineComment.body !== 'string' || !inlineComment.body.trim()) {
+      throw errors.invalidInput('inlineComment requires path, line, and body together');
+    }
+    return inlineComment;
+  }
+
+  /**
+   * Posts the review decision as a general comment on the submission's PR, and
+   * — when the teacher attached an inline remark — a second line comment at the
+   * requested path/line carrying the remark's body. Both are fail-soft: a
+   * remote posting failure is audited and swallowed, never failing the review
+   * decision itself. The inline call is a separate `addComment` so a failing
+   * remark can never retroactively un-post the delivered general comment.
+   */
+  private async postReviewComment(
+    link: RepositoryLinkRecord,
+    submission: SubmissionRecord,
+    body: string,
+    inline?: InlineComment,
+  ): Promise<void> {
+    const post = async (comment: { body: string; inline?: { path: string; line: number } }): Promise<void> => {
+      try {
+        const pr = await this.gitea.ensureReviewPullRequest({
+          repoFullName: link.giteaRepoFullName,
+          protectedRef: submission.protectedRef,
+          attempt: submission.attempt,
+        });
+        await this.gitea.addComment({
+          repoFullName: link.giteaRepoFullName,
+          pullRequestNumber: pr.number,
+          body: comment.body,
+          inline: comment.inline,
+        });
+      } catch {
+        await this.audit.append({
+          actorId: null,
+          eventType: 'integration.error',
+          targetType: 'submission',
+          targetId: submission.id,
+          payload: {
+            reason: 'review_comment_failed',
+            ...(comment.inline ? { inlinePath: comment.inline.path, inlineLine: comment.inline.line } : {}),
+          },
+        });
+      }
+    };
+
+    await post({ body });
+    if (inline) {
+      await post({ body: inline.body, inline: { path: inline.path, line: inline.line } });
+    }
   }
 
   private async currentStatus(linkId: RepositoryLinkId): Promise<AssignmentStatus> {

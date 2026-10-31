@@ -173,6 +173,39 @@ export class GiteaSubmissionAdapter implements GiteaSubmissionPort {
     return verified && { protectedRef: `refs/heads/${branch}`, commitSha: verified.commitSha };
   }
 
+  async addComment(input: {
+    repoFullName: string;
+    pullRequestNumber: number;
+    body: string;
+    inline?: { path: string; line: number };
+  }): Promise<void> {
+    const repo = `/api/v1/repos/${input.repoFullName}`;
+    if (input.inline) {
+      // Gitea PR review comments: create a review with one line comment.
+      await this.fetch(`${repo}/pulls/${input.pullRequestNumber}/reviews`, {
+        method: 'POST',
+        body: JSON.stringify({
+          body: '',
+          event: 'COMMENT',
+          comments: [
+            {
+              body: input.body,
+              path: input.inline.path,
+              old_position: 0,
+              new_position: input.inline.line,
+            },
+          ],
+        }),
+      });
+      return;
+    }
+    // General issue/PR comment.
+    await this.fetch(`${repo}/issues/${input.pullRequestNumber}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ body: input.body }),
+    });
+  }
+
   /**
    * Returns the branch head if the branch exists and is effectively protected
    * against pushes; null if it does not exist; throws if it exists unprotected

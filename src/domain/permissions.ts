@@ -160,8 +160,6 @@ export class PermissionCheckerImpl implements PermissionChecker {
     // No actor may review their own submission — not even Admin or Owner.
     if (actor.userId === link.studentId) return 'self_review';
 
-    if (actor.roles.includes('admin') || actor.roles.includes('owner')) return null;
-
     const assignment = await this.resolver.getAssignment(link.groupAssignmentId);
     if (!assignment) return 'insufficient';
     return actor.userId === assignment.teacherId ? null : 'insufficient';

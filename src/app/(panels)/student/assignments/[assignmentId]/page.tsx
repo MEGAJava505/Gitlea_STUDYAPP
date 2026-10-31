@@ -13,7 +13,7 @@ const formatTashkent = (ms: number) =>
 export default async function StudentAssignmentDetailPage({ params }: { params: Promise<{ assignmentId: string }> }) {
   const { assignmentId } = await params;
   const cookie = (await headers()).get('cookie');
-  const { sessions, identities, studentAssignments } = getServices();
+  const { sessions, identities, studentAssignments, grading } = getServices();
   const principal = await createAuthContext({ sessions, identities }).principal(
     new Request(`http://localhost/student/assignments/${assignmentId}`, { headers: cookie ? { cookie } : undefined }),
   );
@@ -21,6 +21,8 @@ export default async function StudentAssignmentDetailPage({ params }: { params: 
 
   const assignment = await studentAssignments?.get(student.userId, assignmentId);
   if (!assignment) notFound();
+  // Grades are visible only while the numeric grading toggle is ON (PLAN_GITEA.md §11.2).
+  const showGrade = grading ? await grading.isEnabled() : false;
 
   const isOverdue = Date.now() > assignment.deadline;
   const isTerminal = assignment.status === 'passed' || assignment.status === 'failed';
@@ -68,7 +70,7 @@ export default async function StudentAssignmentDetailPage({ params }: { params: 
         <section>
           <h3>Submissions</h3>
           <table>
-            <thead><tr><th>Attempt</th><th>Commit</th><th>Submitted</th><th>Status</th></tr></thead>
+            <thead><tr><th>Attempt</th><th>Commit</th><th>Submitted</th><th>Status</th><th>Feedback</th>{showGrade && <th>Grade</th>}</tr></thead>
             <tbody>
               {assignment.attempts.map((attempt) => (
                 <tr key={attempt.attempt}>
@@ -76,6 +78,8 @@ export default async function StudentAssignmentDetailPage({ params }: { params: 
                   <td><code>{attempt.commitSha}</code></td>
                   <td>{formatTashkent(attempt.submittedAt)}</td>
                   <td>{attempt.status}</td>
+                  <td>{attempt.review ? attempt.review.feedback : ''}</td>
+                  {showGrade && <td data-grade>{attempt.review?.grade ?? ''}</td>}
                 </tr>
               ))}
             </tbody>

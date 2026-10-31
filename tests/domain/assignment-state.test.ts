@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { canTransition } from '../../src/domain/assignments/state-machine';
+import { AssignmentStateMachineImpl, canTransition } from '../../src/domain/assignments/state-machine';
 import { errors } from '../../src/shared/contracts';
 import { makeAssignmentWorld, principal } from './fakes';
 
@@ -470,5 +470,252 @@ describe('review transitions', () => {
         feedback: 'not mine',
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('pass records a numeric grade 1–5 and emits review.graded audit', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    const student = principal(w.student, ['student']);
+    const teacher = principal(w.teacher, ['teacher']);
+    const sub = await w.machine.submit({
+      actor: student,
+      assignmentId: w.assignment.id,
+      commitSha: COMMIT,
+      idempotencyKey: 'key-1',
+    });
+
+    const enabled = new AssignmentStateMachineImpl({ ...w, numericGrading: { isEnabled: async () => true } });
+    const result = await enabled.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId: sub.submission.id,
+      decision: 'pass',
+      feedback: 'excellent',
+      grade: 5,
+    });
+    expect(result.status).toBe('passed');
+    expect(result.review?.grade).toBe(5);
+    const graded = w.auditRepo.events.find((e) => e.eventType === 'review.graded');
+    expect(graded).toBeTruthy();
+    expect(graded?.payload).toMatchObject({ grade: 5, decision: 'pass' });
+  });
+
+  it('grade outside 1–5 is rejected', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    const student = principal(w.student, ['student']);
+    const teacher = principal(w.teacher, ['teacher']);
+    const sub = await w.machine.submit({
+      actor: student,
+      assignmentId: w.assignment.id,
+      commitSha: COMMIT,
+      idempotencyKey: 'key-1',
+    });
+    await expect(
+      w.machine.pass({
+        actor: teacher,
+        assignmentId: w.assignment.id,
+        submissionId: sub.submission.id,
+        decision: 'pass',
+        feedback: 'x',
+        grade: 6 as never,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
+
+  it('review decision posts a comment on the review PR via Gitea', async () => {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    const student = principal(w.student, ['student']);
+    const teacher = principal(w.teacher, ['teacher']);
+    const sub = await w.machine.submit({
+      actor: student,
+      assignmentId: w.assignment.id,
+      commitSha: COMMIT,
+      idempotencyKey: 'key-1',
+    });
+    const enabled = new AssignmentStateMachineImpl({ ...w, numericGrading: { isEnabled: async () => true } });
+    await enabled.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId: sub.submission.id,
+      decision: 'pass',
+      feedback: 'nice',
+      grade: 4,
+    });
+    // ensureReviewPullRequest was called during submit; addComment should have been called by pass
+    expect(w.gitea.comments.length).toBeGreaterThan(0);
+    const comment = w.gitea.comments[0];
+    expect(comment.body).toContain('Passed');
+    expect(comment.body).not.toContain('Grade:');
+  });
+});
+
+describe('inline review comments', () => {
+  async function submittedWorld() {
+    const w = makeAssignmentWorld({ nowMs: 500 });
+    const sub = await w.machine.submit({
+      actor: principal(w.student, ['student']),
+      assignmentId: w.assignment.id,
+      commitSha: COMMIT,
+      idempotencyKey: 'key-1',
+    });
+    return { w, teacher: principal(w.teacher, ['teacher']), submissionId: sub.submission.id };
+  }
+
+  const INLINE = { path: 'src/main.ts', line: 12, body: 'use a guard clause here' };
+
+  it('pass forwards the inline comment as a second, inline addComment call', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    const result = await w.machine.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      decision: 'pass',
+      feedback: 'nice',
+      inlineComment: INLINE,
+    });
+
+    expect(result.status).toBe('passed');
+    const inlineCalls = w.gitea.comments.filter((c) => c.inline);
+    expect(inlineCalls).toHaveLength(1);
+    expect(inlineCalls[0].body).toBe(INLINE.body);
+    expect(inlineCalls[0].inline).toEqual({ path: INLINE.path, line: INLINE.line });
+    const general = w.gitea.comments.find((c) => !c.inline);
+    expect(general?.body).toContain('Passed');
+  });
+
+  it('fail forwards the inline comment', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    const result = await w.machine.fail({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      decision: 'fail',
+      feedback: 'not there yet',
+      inlineComment: INLINE,
+    });
+
+    expect(result.status).toBe('failed');
+    const inlineCalls = w.gitea.comments.filter((c) => c.inline);
+    expect(inlineCalls).toHaveLength(1);
+    expect(inlineCalls[0].body).toBe(INLINE.body);
+    expect(inlineCalls[0].inline).toEqual({ path: INLINE.path, line: INLINE.line });
+  });
+
+  it('request_revision forwards the inline comment', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    const result = await w.machine.requestRevision({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      feedback: 'fix this',
+      inlineComment: INLINE,
+    });
+
+    expect(result.status).toBe('revision_required');
+    const inlineCalls = w.gitea.comments.filter((c) => c.inline);
+    expect(inlineCalls).toHaveLength(1);
+    expect(inlineCalls[0].body).toBe(INLINE.body);
+    expect(inlineCalls[0].inline).toEqual({ path: INLINE.path, line: INLINE.line });
+    expect(w.gitea.comments.find((c) => !c.inline)?.body).toContain('Requested revision');
+  });
+
+  it('without an inline comment only the general comment is posted', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    await w.machine.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      decision: 'pass',
+      feedback: 'plain',
+    });
+    expect(w.gitea.comments).toHaveLength(1);
+    expect(w.gitea.comments[0].inline).toBeUndefined();
+  });
+
+  it('a partial inlineComment (missing body) is rejected before any state change', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    await expect(
+      w.machine.pass({
+        actor: teacher,
+        assignmentId: w.assignment.id,
+        submissionId,
+        decision: 'pass',
+        feedback: 'x',
+        inlineComment: { path: INLINE.path, line: INLINE.line } as never,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    await expect(w.repo.getSubmission(submissionId)).resolves.toMatchObject({ status: 'submitted' });
+    expect(w.gitea.comments).toHaveLength(0);
+  });
+
+  it('a partial inlineComment (missing path) is rejected', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    await expect(
+      w.machine.fail({
+        actor: teacher,
+        assignmentId: w.assignment.id,
+        submissionId,
+        decision: 'fail',
+        feedback: 'x',
+        inlineComment: { line: INLINE.line, body: INLINE.body } as never,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(w.gitea.comments).toHaveLength(0);
+  });
+
+  it('an inline posting failure does not fail the decision and produces the audit', async () => {
+    const { w, teacher, submissionId } = await submittedWorld();
+    const realAddComment = w.gitea.addComment;
+    const failInlineOnly = vi.spyOn(w.gitea, 'addComment').mockImplementation((input) =>
+      input.inline
+        ? Promise.reject(new Error('inline boom'))
+        : realAddComment.call(w.gitea, input),
+    );
+
+    const result = await w.machine.pass({
+      actor: teacher,
+      assignmentId: w.assignment.id,
+      submissionId,
+      decision: 'pass',
+      feedback: 'still counts',
+      inlineComment: INLINE,
+    });
+    failInlineOnly.mockRestore();
+
+    expect(result.status).toBe('passed');
+    // The general comment was delivered; the failed inline one was not.
+    expect(w.gitea.comments.filter((c) => !c.inline)).toHaveLength(1);
+    expect(w.gitea.comments.filter((c) => c.inline)).toHaveLength(0);
+    const audit = w.auditRepo.events.find(
+      (e) => e.eventType === 'integration.error' && e.payload.reason === 'review_comment_failed',
+    );
+    expect(audit).toBeTruthy();
+    expect(audit?.payload).toMatchObject({ inlinePath: INLINE.path, inlineLine: INLINE.line });
+  });
+});
+
+
+describe('numeric grading disabled by default', () => {
+  it('checks the current toggle on every decision and keeps saved grades when disabled', async () => {
+    const w = makeAssignmentWorld();
+    let enabled = true;
+    const machine = new AssignmentStateMachineImpl({ ...w, numericGrading: { isEnabled: async () => enabled } });
+    const { submission } = await machine.submit({ actor: principal(w.student, ['student']), assignmentId: w.assignment.id, commitSha: COMMIT, idempotencyKey: KEY });
+    const input = { actor: principal(w.teacher, ['teacher']), assignmentId: w.assignment.id, submissionId: submission.id, decision: 'pass' as const, feedback: 'ok', grade: 4 as const };
+    enabled = false;
+    await expect(machine.pass(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    enabled = true;
+    const result = await machine.pass(input);
+    enabled = false;
+    expect(result.review?.grade).toBe(4);
+    expect(w.gitea.comments[0].body).not.toContain('Grade:');
+  });
+
+  it('rejects a numeric grade without mutating status, reviews or remote comments', async () => {
+    const w = makeAssignmentWorld();
+    const { submission } = await w.machine.submit({ actor: principal(w.student, ['student']), assignmentId: w.assignment.id, commitSha: COMMIT, idempotencyKey: KEY });
+    await expect(w.machine.pass({ actor: principal(w.teacher, ['teacher']), assignmentId: w.assignment.id, submissionId: submission.id, decision: 'pass', feedback: 'ok', grade: 5 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(await w.repo.getSubmission(submission.id)).toMatchObject({ status: 'submitted' });
+    expect(w.gitea.comments).toHaveLength(0);
+    expect(w.auditRepo.events.some((e) => e.eventType === 'review.graded')).toBe(false);
   });
 });

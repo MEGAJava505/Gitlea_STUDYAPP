@@ -49,6 +49,23 @@ export type SubmissionDecision = 'pass' | 'fail';
 
 export type ResubmissionPolicy = 'allowed' | 'forbidden';
 
+/** Optional numeric grade on a 1–5 scale (PLAN_GITEA.md §11.2). */
+export type NumericGrade = 1 | 2 | 3 | 4 | 5;
+
+/** System setting row for toggleable features (e.g. numeric grading). */
+export interface SystemSetting {
+  id: string;
+  key: string;
+  value: unknown;
+  updatedAt: number;
+}
+
+/** Read/write port over the `system_settings` table (key → JSON value). */
+export interface SystemSettingsRepository {
+  get(key: string): Promise<SystemSetting | null>;
+  set(key: string, value: unknown): Promise<void>;
+}
+
 /* ------------------------------------------------------------------ *
  * Clock
  * ------------------------------------------------------------------ */
@@ -185,7 +202,19 @@ export interface ReviewRecord {
   reviewerId: UserId;
   decision: SubmissionDecision;
   feedback: string;
+  /** Numeric grade 1–5; null when numeric grading is disabled or not set. */
+  grade: NumericGrade | null;
+  /** The single active review for a submission; superseded reviews are kept for audit but inactive. */
+  isActive: boolean;
   createdAt: number;
+}
+
+/** Read port over the `reviews` table for the grading / review-UI surfaces. */
+export interface ReviewQueryRepository {
+  /** The currently-active review for a submission, or null when none has been recorded. */
+  getLatestActiveReview(submissionId: SubmissionId): Promise<ReviewRecord | null>;
+  /** All active reviews whose submissions are in the given set, newest-first. */
+  listReviewsForReview(submissionIds: readonly SubmissionId[]): Promise<ReviewRecord[]>;
 }
 
 export interface NewReview {
@@ -193,6 +222,7 @@ export interface NewReview {
   reviewerId: UserId;
   decision: SubmissionDecision;
   feedback: string;
+  grade: NumericGrade | null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -215,7 +245,9 @@ export type AuditEventType =
   | 'submission.conflict'
   | 'submission.auto_failed'
   | 'review.decision'
+  | 'review.graded'
   | 'review.denied'
+  | 'grading.updated'
   | 'permission.denied'
   | 'integration.error';
 
@@ -317,11 +349,19 @@ export interface SubmitResult {
   alreadyExisted: boolean;
 }
 
+/** A teacher's inline remark tied to a specific file path and line. */
+export interface InlineComment {
+  path: string;
+  line: number;
+  body: string;
+}
+
 export interface RequestRevisionInput {
   actor: SessionPrincipal;
   assignmentId: AssignmentId;
   submissionId: SubmissionId;
   feedback: string;
+  inlineComment?: InlineComment;
 }
 
 export interface ReviewInput {
@@ -330,6 +370,9 @@ export interface ReviewInput {
   submissionId: SubmissionId;
   decision: SubmissionDecision;
   feedback: string;
+  /** Numeric grade 1–5; only honored for a terminal pass/fail when enabled. */
+  grade?: NumericGrade | null;
+  inlineComment?: InlineComment;
 }
 
 export interface ReviewResult {

@@ -1,10 +1,13 @@
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import type { AssignmentStatus, UserId } from '../shared/contracts';
-import { courseAssignments, groupAssignments, groupMembers, repositoryLinks, submissions } from '../db/schema';
+import type { AssignmentStatus, NumericGrade, UserId } from '../shared/contracts';
+import { type reviewDecisions, courseAssignments, groupAssignments, groupMembers, repositoryLinks, reviews, submissions } from '../db/schema';
 import * as relations from '../db/relations';
 
 type Db = BetterSQLite3Database<typeof relations>;
+
+/** The stored review outcome ('revision_required' | 'passed' | 'failed'). */
+type StoredReviewDecision = typeof reviewDecisions[number];
 
 export interface StudentAssignmentSummary {
   id: string;
@@ -13,11 +16,27 @@ export interface StudentAssignmentSummary {
   status: AssignmentStatus | 'not_started';
 }
 
+/** A review surfaced to the student who owns the submission. */
+export interface StudentReviewView {
+  decision: StoredReviewDecision;
+  feedback: string;
+  grade: NumericGrade | null;
+}
+
+export interface StudentAttemptView {
+  attempt: number;
+  commitSha: string;
+  submittedAt: number;
+  status: AssignmentStatus;
+  /** Active review for this attempt; null when it has not been reviewed. */
+  review: StudentReviewView | null;
+}
+
 export interface StudentAssignmentDetail extends StudentAssignmentSummary {
   description: string;
   allowResubmission: boolean;
   repository: { fullName: string } | null;
-  attempts: Array<{ attempt: number; commitSha: string; submittedAt: number; status: AssignmentStatus }>;
+  attempts: StudentAttemptView[];
 }
 
 /**
@@ -35,19 +54,37 @@ export class StudentAssignmentsQuery {
   async get(studentId: UserId, assignmentId: string): Promise<StudentAssignmentDetail | null> {
     const row = this.visible(studentId, assignmentId).get();
     if (!row) return null;
-    const attempts = row.linkId
+    const attemptRows = row.linkId
       ? this.db
         .select({
           attempt: submissions.attempt,
           commitSha: submissions.commitSha,
           submittedAt: submissions.submittedAt,
           status: submissions.status,
+          reviewDecision: reviews.decision,
+          reviewFeedback: reviews.feedback,
+          reviewGrade: reviews.grade,
         })
         .from(submissions)
+        .leftJoin(reviews, and(
+          eq(reviews.submissionId, submissions.id),
+          eq(reviews.isActive, true),
+        ))
         .where(eq(submissions.repositoryLinkId, row.linkId))
         .orderBy(desc(submissions.attempt))
         .all()
       : [];
+    const attempts: StudentAttemptView[] = attemptRows.map((r) => ({
+      attempt: r.attempt,
+      commitSha: r.commitSha,
+      submittedAt: r.submittedAt,
+      status: r.status,
+      review: r.reviewDecision === null ? null : {
+        decision: r.reviewDecision,
+        feedback: r.reviewFeedback ?? '',
+        grade: toNumericGrade(r.reviewGrade),
+      },
+    }));
     return {
       ...toSummary(row),
       description: row.description,
@@ -101,4 +138,10 @@ function toSummary(row: {
     ? row.linkStatus
     : row.latestStatus ?? row.linkStatus ?? 'not_started';
   return { id: row.id, title: row.title, deadline: row.deadline ?? 0, status };
+}
+
+/** Coerces a stored REAL grade into the 1–5 scale; null when absent or out of range. */
+function toNumericGrade(value: number | null): NumericGrade | null {
+  if (value === null || typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 5) return null;
+  return value as NumericGrade;
 }

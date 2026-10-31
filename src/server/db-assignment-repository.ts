@@ -183,6 +183,7 @@ export class DbAssignmentRepository implements AssignmentRepository {
         reviewerId: input.reviewerId,
         decision: input.decision === 'pass' ? 'passed' : 'failed',
         feedback: input.feedback,
+        grade: input.grade,
         isActive: true,
       })
       .run();
@@ -192,6 +193,8 @@ export class DbAssignmentRepository implements AssignmentRepository {
       reviewerId: input.reviewerId,
       decision: input.decision,
       feedback: input.feedback,
+      grade: input.grade,
+      isActive: true,
       createdAt: now,
     };
   }
