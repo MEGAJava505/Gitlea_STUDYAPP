@@ -22,6 +22,8 @@ import { FilesystemBlobStorage } from './blob-storage-filesystem';
 import { MaterialsService } from '../domain/materials/service';
 import { DbSystemSettingsRepository, DbReviewQueryRepository } from './db-grading-repositories';
 import { GradingService } from '../domain/grading/service';
+import { NotificationsService } from '../domain/notifications';
+import { DbNotificationsRepository } from './db-notifications-repository';
 import { openSqliteDatabase } from '../db/migrate';
 import * as tables from '../db/schema';
 import * as relations from '../db/relations';
@@ -95,10 +97,12 @@ export function createProductionServices(): AppServices {
     audit,
     now: Date.now,
   });
+  const notifications = new NotificationsService(new DbNotificationsRepository(db));
   const assignments = new AssignmentStateMachineImpl({
     repo: assignmentRepo,
     gitea: giteaSubmissions,
     numericGrading: grading,
+    notifications,
     permissions,
     audit,
     now: Date.now,
@@ -123,6 +127,7 @@ export function createProductionServices(): AppServices {
     permissions,
     audit,
     grading,
+    notifications,
   };
   if (storageRoot) services.materials = new MaterialsService({
     repo: new DbMaterialsRepository(db), blobs: new FilesystemBlobStorage(storageRoot), now: Date.now,
