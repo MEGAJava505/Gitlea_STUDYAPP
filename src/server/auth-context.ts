@@ -15,6 +15,7 @@ import type { TeacherSubmissionsQuery } from './teacher-submissions';
 import type { ProvisioningService } from '../domain/git/provisioning';
 import type { MaterialsService } from '../domain/materials/service';
 import type { GradingService } from '../domain/grading/service';
+import type { NotificationsService } from '../domain/notifications';
 
 /** Reads the opaque session token from the request's Cookie header. */
 export function readSessionCookie(req: Request): string | null {
@@ -79,6 +80,7 @@ export interface AppServices {
   permissions?: PermissionChecker;
   materials?: MaterialsService;
   grading?: GradingService;
+  notifications?: NotificationsService;
   audit: AuditLogWriter;
 }
 

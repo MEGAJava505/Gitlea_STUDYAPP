@@ -52,6 +52,32 @@ export type ResubmissionPolicy = 'allowed' | 'forbidden';
 /** Optional numeric grade on a 1–5 scale (PLAN_GITEA.md §11.2). */
 export type NumericGrade = 1 | 2 | 3 | 4 | 5;
 
+export const NOTIFICATION_CHANNELS = ['in_app', 'email', 'telegram'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export interface NotificationRecord {
+  id: string;
+  recipientId: UserId;
+  eventType: string;
+  deduplicationKey: string;
+  payload: Record<string, unknown>;
+  readAt: number | null;
+  createdAt: number;
+}
+
+export interface NotificationPreferenceRecord {
+  channel: NotificationChannel;
+  enabled: boolean;
+}
+
+export interface NotificationRepository {
+  create(input: Omit<NotificationRecord, 'id' | 'readAt' | 'createdAt'>): Promise<NotificationRecord>;
+  list(recipientId: UserId, options?: { unreadOnly?: boolean }): Promise<NotificationRecord[]>;
+  markRead(recipientId: UserId, notificationId: string): Promise<boolean>;
+  getPreferences(userId: UserId): Promise<NotificationPreferenceRecord[]>;
+  setPreference(userId: UserId, channel: NotificationChannel, enabled: boolean): Promise<void>;
+}
+
 /** System setting row for toggleable features (e.g. numeric grading). */
 export interface SystemSetting {
   id: string;
