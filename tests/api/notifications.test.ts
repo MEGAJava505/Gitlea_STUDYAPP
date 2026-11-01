@@ -42,7 +42,7 @@ class MemoryNotifications implements NotificationRepository {
   async getPreferences(userId: UserId): Promise<NotificationPreferenceRecord[]> {
     return (['in_app', 'email', 'telegram'] as const).map((channel) => ({
       channel,
-      enabled: this.preferences.get(`${userId}:${channel}`) ?? channel !== 'email',
+      enabled: this.preferences.get(`${userId}:${channel}`) ?? channel === 'in_app',
     }));
   }
 
@@ -110,13 +110,13 @@ describe('in-app notification API', () => {
   it('keeps in-app delivery available even with a legacy disabled preference', async () => {
     const initial = await GET_PREFERENCES(request('/api/v1/notifications/preferences', 'GET', tokens.student));
     expect(await initial.json()).toEqual({ preferences: [
-      { channel: 'in_app', enabled: true }, { channel: 'email', enabled: false }, { channel: 'telegram', enabled: true },
+      { channel: 'in_app', enabled: true }, { channel: 'email', enabled: false }, { channel: 'telegram', enabled: false },
     ] });
 
     expect((await PATCH_PREFERENCES(request('/api/v1/notifications/preferences', 'PATCH', tokens.student, { channel: 'in_app', enabled: false }))).status).toBe(400);
     repository.preferences.set('notification-student:in_app', false);
     expect(await GET_PREFERENCES(request('/api/v1/notifications/preferences', 'GET', tokens.student)).then((response) => response.json())).toEqual({ preferences: [
-      { channel: 'in_app', enabled: true }, { channel: 'email', enabled: false }, { channel: 'telegram', enabled: true },
+      { channel: 'in_app', enabled: true }, { channel: 'email', enabled: false }, { channel: 'telegram', enabled: false },
     ] });
     expect(await services.notifications?.notify({ recipientId: uid('notification-student'), eventType: 'review.decision', deduplicationKey: 'r3', payload: {} })).not.toBeNull();
     expect(repository.rows).toHaveLength(1);
