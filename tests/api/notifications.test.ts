@@ -40,7 +40,10 @@ class MemoryNotifications implements NotificationRepository {
   }
 
   async getPreferences(userId: UserId): Promise<NotificationPreferenceRecord[]> {
-    return (['in_app', 'email', 'telegram'] as const).map((channel) => ({ channel, enabled: this.preferences.get(`${userId}:${channel}`) ?? true }));
+    return (['in_app', 'email', 'telegram'] as const).map((channel) => ({
+      channel,
+      enabled: this.preferences.get(`${userId}:${channel}`) ?? channel !== 'email',
+    }));
   }
 
   async setPreference(userId: UserId, channel: NotificationChannel, enabled: boolean): Promise<void> {
@@ -107,12 +110,12 @@ describe('in-app notification API', () => {
   it('returns enabled defaults, persists preference changes, and suppresses disabled in-app delivery', async () => {
     const initial = await GET_PREFERENCES(request('/api/v1/notifications/preferences', 'GET', tokens.student));
     expect(await initial.json()).toEqual({ preferences: [
-      { channel: 'in_app', enabled: true }, { channel: 'email', enabled: true }, { channel: 'telegram', enabled: true },
+      { channel: 'in_app', enabled: true }, { channel: 'email', enabled: false }, { channel: 'telegram', enabled: true },
     ] });
 
     expect((await PATCH_PREFERENCES(request('/api/v1/notifications/preferences', 'PATCH', tokens.student, { channel: 'in_app', enabled: false }))).status).toBe(200);
     expect(await GET_PREFERENCES(request('/api/v1/notifications/preferences', 'GET', tokens.student)).then((response) => response.json())).toEqual({ preferences: [
-      { channel: 'in_app', enabled: false }, { channel: 'email', enabled: true }, { channel: 'telegram', enabled: true },
+      { channel: 'in_app', enabled: false }, { channel: 'email', enabled: false }, { channel: 'telegram', enabled: true },
     ] });
     expect(await services.notifications?.notify({ recipientId: uid('notification-student'), eventType: 'review.decision', deduplicationKey: 'r3', payload: {} })).toBeNull();
     expect(repository.rows).toHaveLength(0);
