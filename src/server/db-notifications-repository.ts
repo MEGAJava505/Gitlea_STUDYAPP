@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
+import { errors } from '../shared/contracts';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import type {
   NotificationChannel,
@@ -52,10 +52,11 @@ export class DbNotificationsRepository implements NotificationRepository {
   async getPreferences(userId: UserId): Promise<NotificationPreferenceRecord[]> {
     const stored = this.db.select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId)).all();
     const byChannel = new Map(stored.map((row) => [row.channel, row.enabled]));
-    return channels.map((channel) => ({ channel, enabled: byChannel.get(channel) ?? channel !== 'email' }));
+    return channels.map((channel) => ({ channel, enabled: channel === 'in_app' || (byChannel.get(channel) ?? channel !== 'email') }));
   }
 
   async setPreference(userId: UserId, channel: NotificationChannel, enabled: boolean): Promise<void> {
+    if (channel === 'in_app' && !enabled) throw errors.invalidInput('In-app notifications are always available');
     this.db.insert(notificationPreferences).values({ userId, channel, enabled })
       .onConflictDoUpdate({
         target: [notificationPreferences.userId, notificationPreferences.channel],
