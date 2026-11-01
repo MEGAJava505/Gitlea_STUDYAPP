@@ -6,6 +6,8 @@ if(/2>&1\s*\|\s*Tee-Object/.test(ps))throw Error('PowerShell still pipes docker 
 if(!/Wait-DockerEngine|Test-DockerEngine/.test(ps)||!/dockerDesktopLinuxEngine|Docker Desktop/.test(ps))throw Error('PowerShell Docker engine preflight/wait missing');
 if(!/pullRetries|Test-PullRetriable|unexpected EOF/.test(ps))throw Error('PowerShell bounded image-pull retry missing');
 if(!/Test-PortFree|GITEA_HTTP_PORT|PROXY_HTTP_PORT/.test(ps))throw Error('PowerShell port preflight missing');
+if(!/Get-EnvPort/.test(ps)||!/65535/.test(ps))throw Error('PowerShell port range validation missing');
+if(!/duplicate|conflicts with|seenPorts/i.test(ps))throw Error('PowerShell duplicate host-port validation missing');
 if(!/\$LASTEXITCODE/.test(ps))throw Error('PowerShell LASTEXITCODE check missing');
 console.log(JSON.stringify({windowsLauncherStaticChecks:true,passed:true}));
 if(!existsSync(root+'/start.sh'))throw Error('Launcher not present');const temporary=mkdtempSync(join(tmpdir(),'Gitlea launcher with spaces-'));let passed=0;

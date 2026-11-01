@@ -117,12 +117,14 @@ function Test-PortFree([int]$Port) {
     }
 }
 
-function Get-EnvInt([hashtable]$Values, [string]$Key, [int]$Default) {
+function Get-EnvPort([hashtable]$Values, [string]$Key, [int]$Default) {
     $raw = [string]$Values[$Key]
     if (-not $raw) { return $Default }
     $parsed = 0
-    if ([int]::TryParse($raw, [ref]$parsed)) { return $parsed }
-    return $Default
+    if (-not [int]::TryParse($raw, [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt 65535) {
+        throw "Set $Key in .env to a host TCP port from 1 through 65535, or remove it to use the default $Default. Nothing was started."
+    }
+    return $parsed
 }
 
 function New-Secret {
@@ -223,23 +225,32 @@ try {
         Say 'WARNING: OIDC is unconfigured. Next step: fill OIDC_* in .env per docs/SHOWCASE_AUTH.md, or continue with activation-only demo.'
     }
 
-    $giteaHttp = Get-EnvInt $values 'GITEA_HTTP_PORT' 3000
-    $giteaSsh = Get-EnvInt $values 'GITEA_SSH_PORT' 2222
-    $proxyHttp = Get-EnvInt $values 'PROXY_HTTP_PORT' 8080
-    $proxyHttps = Get-EnvInt $values 'PROXY_HTTPS_PORT' 8443
+    $giteaHttp = Get-EnvPort $values 'GITEA_HTTP_PORT' 3000
+    $giteaSsh = Get-EnvPort $values 'GITEA_SSH_PORT' 2222
+    $proxyHttp = Get-EnvPort $values 'PROXY_HTTP_PORT' 8080
+    $proxyHttps = Get-EnvPort $values 'PROXY_HTTPS_PORT' 8443
     $busy = @()
+    $duplicate = @()
+    $seenPorts = @{}
     foreach ($pair in @(
         @{ Name = 'GITEA_HTTP_PORT'; Port = $giteaHttp },
         @{ Name = 'GITEA_SSH_PORT'; Port = $giteaSsh },
         @{ Name = 'PROXY_HTTP_PORT'; Port = $proxyHttp },
         @{ Name = 'PROXY_HTTPS_PORT'; Port = $proxyHttps }
     )) {
+        $portKey = [string][int]$pair.Port
+        if ($seenPorts.ContainsKey($portKey)) {
+            $duplicate += ($pair.Name + '=' + $pair.Port + ' conflicts with ' + $seenPorts[$portKey])
+        } else {
+            $seenPorts[$portKey] = $pair.Name
+        }
         if (-not (Test-PortFree -Port ([int]$pair.Port))) {
             $busy += ($pair.Name + '=' + $pair.Port)
         }
     }
-    if ($busy.Count -gt 0) {
-        throw ('Host port already allocated: ' + ($busy -join ', ') + '. Free the port(s) or set different GITEA_HTTP_PORT / GITEA_SSH_PORT / PROXY_HTTP_PORT / PROXY_HTTPS_PORT in .env, then re-run. Nothing was started.')
+    if ($busy.Count -gt 0 -or $duplicate.Count -gt 0) {
+        $problems = @($duplicate + $(if ($busy.Count -gt 0) { 'already allocated: ' + ($busy -join ', ') }))
+        throw ('Host port configuration invalid: ' + ($problems -join '; ') + '. Set different GITEA_HTTP_PORT / GITEA_SSH_PORT / PROXY_HTTP_PORT / PROXY_HTTPS_PORT in .env, then re-run. Nothing was started.')
     }
     Say ('Port preflight OK: Gitea HTTP ' + $giteaHttp + ', SSH ' + $giteaSsh + ', proxy HTTP ' + $proxyHttp + ', HTTPS ' + $proxyHttps)
 
