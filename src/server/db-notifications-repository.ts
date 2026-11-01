@@ -52,7 +52,7 @@ export class DbNotificationsRepository implements NotificationRepository {
   async getPreferences(userId: UserId): Promise<NotificationPreferenceRecord[]> {
     const stored = this.db.select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId)).all();
     const byChannel = new Map(stored.map((row) => [row.channel, row.enabled]));
-    return channels.map((channel) => ({ channel, enabled: byChannel.get(channel) ?? true }));
+    return channels.map((channel) => ({ channel, enabled: byChannel.get(channel) ?? channel !== 'email' }));
   }
 
   async setPreference(userId: UserId, channel: NotificationChannel, enabled: boolean): Promise<void> {
