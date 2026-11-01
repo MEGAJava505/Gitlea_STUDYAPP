@@ -31,16 +31,17 @@ async function setup() {
 
 describe('notification SQLite repository', () => {
   it('persists in-app preferences and deduplicates by recipient and key', async () => {
-    const { repo, userId } = await setup();
+    const { db, repo, userId } = await setup();
 
     expect(await repo.getPreferences(userId)).toEqual([
       { channel: 'in_app', enabled: true },
       { channel: 'email', enabled: false },
       { channel: 'telegram', enabled: true },
     ]);
-    await repo.setPreference(userId, 'in_app', false);
+    await expect(repo.setPreference(userId, 'in_app', false)).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    db.prepare("INSERT INTO notification_preferences (id, user_id, channel, enabled) VALUES ('legacy-in-app', ?, 'in_app', 0)").run(userId);
     expect(await repo.getPreferences(userId)).toEqual([
-      { channel: 'in_app', enabled: false },
+      { channel: 'in_app', enabled: true },
       { channel: 'email', enabled: false },
       { channel: 'telegram', enabled: true },
     ]);

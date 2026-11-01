@@ -1,3 +1,4 @@
+import { errors } from '../shared/contracts';
 import type {
   NotificationChannel,
   NotificationPreferenceRecord,
@@ -16,8 +17,6 @@ export class NotificationsService {
     deduplicationKey: string;
     payload: Record<string, unknown>;
   }): Promise<NotificationRecord | null> {
-    const preferences = await this.repository.getPreferences(input.recipientId);
-    if (!preferences.find((preference) => preference.channel === 'in_app')?.enabled) return null;
     return this.repository.create(input);
   }
 
@@ -29,11 +28,13 @@ export class NotificationsService {
     return this.repository.markRead(userId, notificationId);
   }
 
-  getPreferences(userId: UserId): Promise<NotificationPreferenceRecord[]> {
-    return this.repository.getPreferences(userId);
+  async getPreferences(userId: UserId): Promise<NotificationPreferenceRecord[]> {
+    const preferences = await this.repository.getPreferences(userId);
+    return preferences.map((preference) => preference.channel === 'in_app' ? { ...preference, enabled: true } : preference);
   }
 
-  setPreference(userId: UserId, channel: NotificationChannel, enabled: boolean): Promise<void> {
+  async setPreference(userId: UserId, channel: NotificationChannel, enabled: boolean): Promise<void> {
+    if (channel === 'in_app' && !enabled) throw errors.invalidInput('In-app notifications are always available');
     return this.repository.setPreference(userId, channel, enabled);
   }
 }
