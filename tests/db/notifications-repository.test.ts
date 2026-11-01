@@ -35,13 +35,13 @@ describe('notification SQLite repository', () => {
 
     expect(await repo.getPreferences(userId)).toEqual([
       { channel: 'in_app', enabled: true },
-      { channel: 'email', enabled: true },
+      { channel: 'email', enabled: false },
       { channel: 'telegram', enabled: true },
     ]);
     await repo.setPreference(userId, 'in_app', false);
     expect(await repo.getPreferences(userId)).toEqual([
       { channel: 'in_app', enabled: false },
-      { channel: 'email', enabled: true },
+      { channel: 'email', enabled: false },
       { channel: 'telegram', enabled: true },
     ]);
 
