@@ -21,6 +21,7 @@ import {
   errors,
 } from '../../shared/contracts';
 import { GiteaSubmissionPort } from '../../server/ports/gitea-submissions';
+import type { NotificationsService } from '../notifications';
 
 /**
  * Exact state machine from TASK_C:
@@ -55,6 +56,7 @@ interface StateMachineDeps {
   audit: AuditLogWriter;
   now: Clock;
   numericGrading?: { isEnabled(): Promise<boolean> };
+  notifications?: Pick<NotificationsService, 'notify'>;
 }
 
 // Coordination avoids duplicate remote work for machines sharing an adapter.
@@ -68,6 +70,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
   private readonly audit: AuditLogWriter;
   private readonly now: Clock;
   private readonly numericGrading: { isEnabled(): Promise<boolean> };
+  private readonly notifications?: Pick<NotificationsService, 'notify'>;
 
   constructor(deps: StateMachineDeps) {
     this.repo = deps.repo;
@@ -76,6 +79,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
     this.audit = deps.audit;
     this.now = deps.now;
     this.numericGrading = deps.numericGrading ?? { isEnabled: async () => false };
+    this.notifications = deps.notifications;
   }
 
   async submit(input: SubmitInput): Promise<SubmitResult> {
@@ -275,6 +279,7 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
       targetId: submissionId,
       payload: { decision: 'revision_required', feedback },
     });
+    await this.notifyReview(link.studentId, submissionId, 'revision_required', feedback);
     return { review: null, status: 'revision_required' };
   }
 
@@ -337,7 +342,17 @@ export class AssignmentStateMachineImpl implements AssignmentStateMachine {
         payload: { grade, decision },
       });
     }
+    await this.notifyReview(link.studentId, submissionId, targetStatus, feedback);
     return { review, status: targetStatus };
+  }
+
+  private async notifyReview(studentId: RepositoryLinkRecord['studentId'], submissionId: SubmissionId, status: AssignmentStatus, feedback: string): Promise<void> {
+    await this.notifications?.notify({
+      recipientId: studentId,
+      eventType: 'review.decision',
+      deduplicationKey: `review:${submissionId}:${status}`,
+      payload: { submissionId, status, feedback },
+    });
   }
 
   /** Validates a numeric grade against the 1–5 scale; null when absent/disabled. */

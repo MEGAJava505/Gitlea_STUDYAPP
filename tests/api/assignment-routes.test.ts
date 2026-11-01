@@ -27,6 +27,7 @@ let teacherToken = '';
 let student2Token = '';
 const rawTokens: string[] = [];
 let gitea: FakeGitea;
+const reviewNotifications: Array<{ recipientId: string; eventType: string; deduplicationKey: string; payload: Record<string, unknown> }> = [];
 
 const jsonReq = (url: string, body: unknown, headers: Record<string, string> = {}) =>
   new Request(new URL(url, 'http://localhost').toString(), {
@@ -82,7 +83,10 @@ beforeAll(async () => {
   fakeGitea.commits.add('abc123');
   gitea = fakeGitea;
   const permissions = new PermissionCheckerImpl({ resolver: assignmentRepo, audit });
-  const assignments = new AssignmentStateMachineImpl({ repo: assignmentRepo, gitea: fakeGitea, permissions, audit, now });
+  const assignments = new AssignmentStateMachineImpl({
+    repo: assignmentRepo, gitea: fakeGitea, permissions, audit, now,
+    notifications: { notify: async (input) => { reviewNotifications.push(input); return null; } },
+  });
 
   configureServices({ sessions, identities, assignments, permissions, audit });
 
@@ -258,6 +262,12 @@ describe('API routes', () => {
     const body = (await res.json()) as { status: string; review: { decision: string } | null };
     expect(body.status).toBe('passed');
     expect(body.review?.decision).toBe('pass');
+    expect(reviewNotifications).toContainEqual({
+      recipientId: uid('u-student'),
+      eventType: 'review.decision',
+      deduplicationKey: 'review:sub-1:passed',
+      payload: { submissionId: 'sub-1', status: 'passed', feedback: 'ok' },
+    });
   });
 
   it.each([null, { path: 'a.ts', line: 0, body: 'fix' }, { path: 'a.ts', line: -1, body: 'fix' }])('review: malformed inline comment %j is a 400', async (inlineComment) => {
