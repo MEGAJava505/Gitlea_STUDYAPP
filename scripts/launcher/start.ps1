@@ -106,7 +106,7 @@ function Wait-DockerEngine([int]$TimeoutSeconds) {
 }
 
 function Test-PortFree([int]$Port) {
-    if ($Port -le 0 -or $Port -gt 65535) { return $true }
+    if ($Port -le 0 -or $Port -gt 65535) { return $false }
     try {
         $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, $Port)
         $listener.Start()
@@ -121,8 +121,10 @@ function Get-EnvInt([hashtable]$Values, [string]$Key, [int]$Default) {
     $raw = [string]$Values[$Key]
     if (-not $raw) { return $Default }
     $parsed = 0
-    if ([int]::TryParse($raw, [ref]$parsed)) { return $parsed }
-    return $Default
+    if (-not [int]::TryParse($raw, [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt 65535) {
+        throw ("Invalid port value for " + $Key + ": " + $raw + ". Use an integer from 1 through 65535.")
+    }
+    return $parsed
 }
 
 function New-Secret {
@@ -227,13 +229,19 @@ try {
     $giteaSsh = Get-EnvInt $values 'GITEA_SSH_PORT' 2222
     $proxyHttp = Get-EnvInt $values 'PROXY_HTTP_PORT' 8080
     $proxyHttps = Get-EnvInt $values 'PROXY_HTTPS_PORT' 8443
-    $busy = @()
-    foreach ($pair in @(
+    $portBindings = @(
         @{ Name = 'GITEA_HTTP_PORT'; Port = $giteaHttp },
         @{ Name = 'GITEA_SSH_PORT'; Port = $giteaSsh },
         @{ Name = 'PROXY_HTTP_PORT'; Port = $proxyHttp },
         @{ Name = 'PROXY_HTTPS_PORT'; Port = $proxyHttps }
-    )) {
+    )
+    $duplicateBindings = @($portBindings | Group-Object Port | Where-Object { $_.Count -gt 1 })
+    if ($duplicateBindings.Count -gt 0) {
+        $duplicates = @($duplicateBindings | ForEach-Object { $_.Group.Name -join ' and ' })
+        throw ('Duplicate host port configuration: ' + ($duplicates -join ', ') + '. Assign a unique port to each binding in .env; nothing was started.')
+    }
+    $busy = @()
+    foreach ($pair in $portBindings) {
         if (-not (Test-PortFree -Port ([int]$pair.Port))) {
             $busy += ($pair.Name + '=' + $pair.Port)
         }
