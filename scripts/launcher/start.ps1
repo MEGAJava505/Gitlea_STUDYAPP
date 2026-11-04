@@ -106,7 +106,9 @@ function Wait-DockerEngine([int]$TimeoutSeconds) {
 }
 
 function Test-PortFree([int]$Port) {
-    if ($Port -le 0 -or $Port -gt 65535) { return $true }
+    if ($Port -lt 1 -or $Port -gt 65535) {
+        throw 'Host port must be between 1 and 65535.'
+    }
     try {
         $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, $Port)
         $listener.Start()
@@ -117,12 +119,23 @@ function Test-PortFree([int]$Port) {
     }
 }
 
-function Get-EnvInt([hashtable]$Values, [string]$Key, [int]$Default) {
+function Get-HostPort([hashtable]$Values, [string]$Key, [int]$Default) {
+    if (-not $Values.ContainsKey($Key)) { return $Default }
     $raw = [string]$Values[$Key]
-    if (-not $raw) { return $Default }
     $parsed = 0
-    if ([int]::TryParse($raw, [ref]$parsed)) { return $parsed }
-    return $Default
+    if ($raw -notmatch '^\d+$' -or -not [int]::TryParse($raw, [Globalization.NumberStyles]::None, [Globalization.CultureInfo]::InvariantCulture, [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt 65535) {
+        throw ("Set " + $Key + " in .env to a decimal TCP port between 1 and 65535. Nothing was started.")
+    }
+    return $parsed
+}
+
+function Assert-UniqueHostPorts([object[]]$Ports) {
+    $duplicates = @($Ports | Group-Object Port | Where-Object { $_.Count -gt 1 })
+    if ($duplicates.Count -eq 0) { return }
+    $assignments = foreach ($group in $duplicates) {
+        (($group.Group | ForEach-Object { $_.Name }) -join ', ') + '=' + $group.Name
+    }
+    throw ('Host port assigned more than once: ' + ($assignments -join '; ') + '. Choose a unique port for each service. Nothing was started.')
 }
 
 function New-Secret {
@@ -223,17 +236,19 @@ try {
         Say 'WARNING: OIDC is unconfigured. Next step: fill OIDC_* in .env per docs/SHOWCASE_AUTH.md, or continue with activation-only demo.'
     }
 
-    $giteaHttp = Get-EnvInt $values 'GITEA_HTTP_PORT' 3000
-    $giteaSsh = Get-EnvInt $values 'GITEA_SSH_PORT' 2222
-    $proxyHttp = Get-EnvInt $values 'PROXY_HTTP_PORT' 8080
-    $proxyHttps = Get-EnvInt $values 'PROXY_HTTPS_PORT' 8443
-    $busy = @()
-    foreach ($pair in @(
+    $giteaHttp = Get-HostPort $values 'GITEA_HTTP_PORT' 3000
+    $giteaSsh = Get-HostPort $values 'GITEA_SSH_PORT' 2222
+    $proxyHttp = Get-HostPort $values 'PROXY_HTTP_PORT' 8080
+    $proxyHttps = Get-HostPort $values 'PROXY_HTTPS_PORT' 8443
+    $ports = @(
         @{ Name = 'GITEA_HTTP_PORT'; Port = $giteaHttp },
         @{ Name = 'GITEA_SSH_PORT'; Port = $giteaSsh },
         @{ Name = 'PROXY_HTTP_PORT'; Port = $proxyHttp },
         @{ Name = 'PROXY_HTTPS_PORT'; Port = $proxyHttps }
-    )) {
+    )
+    Assert-UniqueHostPorts -Ports $ports
+    $busy = @()
+    foreach ($pair in $ports) {
         if (-not (Test-PortFree -Port ([int]$pair.Port))) {
             $busy += ($pair.Name + '=' + $pair.Port)
         }
