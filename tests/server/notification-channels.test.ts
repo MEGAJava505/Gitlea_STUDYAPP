@@ -24,3 +24,21 @@ describe('Telegram notification channel', () => {
     await expect(channel.send({ chatId: '12345', text: 'Review passed' })).rejects.toThrow('Telegram delivery failed');
   });
 });
+
+import { EmailNotificationChannel } from '../../src/server/notification-channels';
+
+describe('Email notification channel', () => {
+  it('keeps ordinary email disabled unless explicitly enabled', async () => {
+    const send = vi.fn(async () => undefined);
+    const channel = new EmailNotificationChannel({ from: 'noreply@example.test', sendMail: send });
+    await channel.send({ to: 'student@example.test', subject: 'Review passed', text: 'Your review passed.' });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('delivers a message when enabled and never sends hidden payload fields', async () => {
+    const send = vi.fn(async () => undefined);
+    const channel = new EmailNotificationChannel({ from: 'noreply@example.test', enabled: true, sendMail: send });
+    await channel.send({ to: 'student@example.test', subject: 'Review passed', text: 'Your review passed.' });
+    expect(send).toHaveBeenCalledWith({ from: 'noreply@example.test', to: 'student@example.test', subject: 'Review passed', text: 'Your review passed.' });
+  });
+});

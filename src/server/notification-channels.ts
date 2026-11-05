@@ -1,3 +1,30 @@
+export interface EmailNotification {
+  to: string;
+  subject: string;
+  text: string;
+}
+
+export interface EmailNotificationOptions {
+  from: string;
+  enabled?: boolean;
+  sendMail: (msg: { from: string; to: string; subject: string; text: string }) => Promise<void>;
+}
+
+/** Email delivery adapter; disabled by default to fail closed. */
+export class EmailNotificationChannel {
+  constructor(private readonly options: EmailNotificationOptions) {}
+
+  async send(message: EmailNotification): Promise<void> {
+    if (!this.options.enabled) return;
+    await this.options.sendMail({
+      from: this.options.from,
+      to: message.to,
+      subject: message.subject,
+      text: message.text,
+    });
+  }
+}
+
 export interface TelegramNotification {
   chatId: string;
   text: string;
