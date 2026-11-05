@@ -315,6 +315,7 @@ export const outageIncidents = sqliteTable('outage_incidents', {
   details: text('details').notNull().default(''),
   ...timestamps(),
 }, (table) => [
+  uniqueIndex('outage_incidents_one_open_per_service').on(table.service).where(sql`${table.endedAt} IS NULL`),
   index('outage_incidents_service_start_idx').on(table.service, table.startedAt),
   check('outage_incidents_confirmed_check', sql`${table.confirmed} IN (0, 1)`),
   check('outage_incidents_dates_check', sql`${table.endedAt} IS NULL OR ${table.endedAt} >= ${table.startedAt}`),

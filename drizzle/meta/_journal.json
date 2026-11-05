@@ -43,6 +43,13 @@
       "when": 1793083200000,
       "tag": "0005_materials",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793907200432,
+      "tag": "0006_availability_incidents",
+      "breakpoints": true
     }
   ]
 }
