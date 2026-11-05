@@ -30,7 +30,8 @@ function crc32(buf: Buffer): number {
 
 class Repo {
   inserted: TestDefinitionRecord[] = [];
-  async getGroupAssignment() { return { id: 'ga-1', authorId: 'teacher' as UserId, groupId: 'group-1' }; }
+  assignment: { id: string; authorId: UserId } | null = { id: 'ga-1', authorId: 'teacher' as UserId };
+  async getGroupAssignment() { return this.assignment; }
   async canTeachGroup() { return false; }
   async insert(input: Omit<TestDefinitionRecord, 'id' | 'createdAt'>) {
     const record = { ...input, id: 'td-1', createdAt: 100 }; this.inserted.push(record); return record;
@@ -56,5 +57,32 @@ describe('test definition uploads', () => {
     const service = new TestDefinitionsService({ repo: new Repo(), blobs: new Blobs(), now: () => 100 });
     await expect(service.upload({ actor: student, groupAssignmentId: 'ga-1', name: 'Tests', visibility: 'visible', filename: 'checks.zip', bytes: zipEntry('test_main.py', 'assert True') })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(service.upload({ actor: teacher, groupAssignmentId: 'ga-1', name: 'Tests', visibility: 'visible', filename: 'checks.zip', bytes: zipEntry('readme.txt', 'no tests') })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+  });
+
+  it('requires the assignment author even when the actor has a teacher role', async () => {
+    const repo = new Repo();
+    repo.assignment = { id: 'ga-1', authorId: 'another-teacher' as UserId };
+    const blobs = new Blobs();
+    const service = new TestDefinitionsService({ repo, blobs, now: () => 100 });
+    await expect(service.upload({ actor: teacher, groupAssignmentId: 'ga-1', name: 'Tests', visibility: 'visible', filename: 'checks.zip', bytes: zipEntry('test_main.py', 'assert True') })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(blobs.stored).toBeNull();
+    expect(repo.inserted).toHaveLength(0);
+  });
+
+  it('rejects unsafe archives and invalid metadata before storing them', async () => {
+    const repo = new Repo(); const blobs = new Blobs();
+    const service = new TestDefinitionsService({ repo, blobs, now: () => 100 });
+    const valid = zipEntry('test_main.py', 'assert True');
+    await expect(service.upload({ actor: teacher, groupAssignmentId: 'ga-1', name: 'Tests', visibility: 'visible', filename: 'checks.txt', bytes: valid })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    await expect(service.upload({ actor: teacher, groupAssignmentId: 'ga-1', name: 'Tests', visibility: 'other' as 'visible', filename: 'checks.zip', bytes: valid })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    await expect(service.upload({ actor: teacher, groupAssignmentId: 'ga-1', name: 'Tests', visibility: 'visible', filename: 'checks.zip', bytes: zipEntry('../test_main.py', 'assert True') })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(blobs.stored).toBeNull();
+    expect(repo.inserted).toHaveLength(0);
+  });
+
+  it('returns not found for an unknown assignment', async () => {
+    const repo = new Repo(); repo.assignment = null;
+    const service = new TestDefinitionsService({ repo, blobs: new Blobs(), now: () => 100 });
+    await expect(service.upload({ actor: teacher, groupAssignmentId: 'missing', name: 'Tests', visibility: 'visible', filename: 'checks.zip', bytes: zipEntry('test_main.py', 'assert True') })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });
