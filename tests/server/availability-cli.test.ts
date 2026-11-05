@@ -29,11 +29,14 @@ it('runs independently over real HTTP, persists failure and recovery across SQLi
       try { return db.prepare('SELECT service, started_at, ended_at, confirmed, details FROM outage_incidents ORDER BY started_at').all(); }
       finally { db.close(); }
     };
-    const options = { appUrl, giteaUrl, databaseUrl, timeoutMs: 100 };
+    // Give ordinary local HTTP responses a realistic budget. The hanging
+    // fixture below deliberately uses a short, deterministic timeout instead
+    // of making healthy responses race the abort deadline.
+    const options = { appUrl, giteaUrl, databaseUrl, timeoutMs: 1000 };
     await runAvailabilityOnce({ ...options, now: () => 100 });
     expect(read()).toEqual([{ service: 'app', started_at: 100, ended_at: null, confirmed: 0, details: 'HTTP unavailable' }]);
     appStatus = 200; giteaHangs = true;
-    await runAvailabilityOnce({ ...options, now: () => 200 });
+    await runAvailabilityOnce({ ...options, timeoutMs: 100, now: () => 200 });
     expect(read()).toMatchObject([
       { service: 'app', ended_at: 200, confirmed: 1 },
       { service: 'gitea', started_at: 200, ended_at: null, details: 'Availability probe failed' },
