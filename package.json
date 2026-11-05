@@ -19,7 +19,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx scripts/seed.ts",
     "validate:gitea": "tsx scripts/phase0/run-positive.ts",
-    "validate:gitea:negative": "tsx scripts/phase0/run-negative.ts"
+    "validate:gitea:negative": "tsx scripts/phase0/run-negative.ts",
+    "availability:once": "tsx scripts/reliability/probe-once.ts"
   },
   "dependencies": {
     "jose": "^6.2.13",
