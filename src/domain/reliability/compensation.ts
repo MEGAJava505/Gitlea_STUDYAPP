@@ -46,7 +46,12 @@ export function activateCompensation(input: {
   deadline: number;
   existing?: CompensationWindow | null;
 }): CompensationWindow {
-  if (input.existing) return input.existing;
+  if (input.existing) {
+    if (input.existing.outageId !== input.outage.id || input.existing.userId !== input.userId) {
+      throw errors.invalidState('Existing compensation window belongs to another outage or user');
+    }
+    return input.existing;
+  }
   if (!outageCrossesDeadline(input.outage, input.deadline)) {
     throw errors.invalidState('This outage does not qualify for deadline compensation');
   }

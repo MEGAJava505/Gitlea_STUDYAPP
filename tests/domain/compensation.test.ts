@@ -44,4 +44,14 @@ describe('automatic outage compensation', () => {
       outage: { ...outage, recoveredAt: null }, userId: user, deadline: 2_000, now: 3_001,
     })).toThrow(/compensation/i);
   });
+
+  it('does not replay an existing window for another user or outage', () => {
+    const existing = activateCompensation({ outage, userId: user, deadline: 2_000, now: 3_100 });
+    expect(() => activateCompensation({
+      outage, userId: 'student-2' as UserId, deadline: 2_000, now: 3_200, existing,
+    })).toThrow(/window/i);
+    expect(() => activateCompensation({
+      outage: { ...outage, id: 'incident-2' }, userId: user, deadline: 2_000, now: 3_200, existing,
+    })).toThrow(/window/i);
+  });
 });
