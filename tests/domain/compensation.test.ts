@@ -12,6 +12,15 @@ const user = 'student-1' as UserId;
 const outage = { id: 'incident-1', service: 'gitea', startedAt: 1_000, recoveredAt: 3_000, confirmed: true };
 
 describe('automatic outage compensation', () => {
+  it('rejects activation before recovery and permits the recovery instant', () => {
+    expect(() => activateCompensation({
+      outage, userId: user, deadline: 2_000, now: 2_999,
+    })).toThrow(/recovery/i);
+    expect(activateCompensation({
+      outage, userId: user, deadline: 2_000, now: 3_000,
+    })).toMatchObject({ startsAt: 3_000, endsAt: 603_000 });
+  });
+
   it('requires confirmed recovery after the deadline', () => {
     expect(outageCrossesDeadline(outage, 2_000)).toBe(true);
     expect(outageCrossesDeadline({ ...outage, confirmed: false }, 2_000)).toBe(false);

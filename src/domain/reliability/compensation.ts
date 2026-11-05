@@ -56,6 +56,9 @@ export function activateCompensation(input: {
     throw errors.invalidState('This outage does not qualify for deadline compensation');
   }
   const expires = activationExpiresAt(input.outage);
+  if (input.outage.recoveredAt !== null && input.now < input.outage.recoveredAt) {
+    throw errors.invalidState('Compensation is unavailable before confirmed recovery');
+  }
   if (input.now > expires) throw errors.deadlineExpired();
   return {
     outageId: input.outage.id,
