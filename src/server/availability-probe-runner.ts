@@ -16,7 +16,12 @@ export class AvailabilityProbeRunner {
   ) {}
 
   async runOnce(): Promise<AvailabilityIncidentRecord | null> {
-    const result = await this.probe();
+    let result: AvailabilityProbeResult;
+    try {
+      result = await this.probe();
+    } catch {
+      result = { available: false, details: 'Availability probe failed' };
+    }
     return this.repository.recordProbe({
       service: this.service,
       available: result.available,
